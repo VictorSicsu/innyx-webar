@@ -17,7 +17,11 @@ body[data-appearance="dark"] .sidebar .brand-logo-base,
 .auth-brand .brand-logo-symbol,
 body[data-appearance="dark"] .sidebar .brand-logo-symbol,
 .viewer-brand .brand-logo-symbol,
-.ar-hud-brand .brand-logo-symbol{display:block}
+.ar-hud-brand .brand-logo-symbol{display:block};
+.auth-brand .brand-logo-symbol,
+body[data-appearance="dark"] .sidebar .brand-logo-symbol,
+.viewer-brand .brand-logo-symbol,
+.ar-hud-brand .brand-logo-symbol{filter:brightness(0) invert(1)}
 
 @media(max-width:800px){
   .sidebar .brand{width:42px;height:38px;min-height:38px;margin:0 auto 28px;justify-content:flex-start}
