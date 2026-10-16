@@ -7,6 +7,9 @@ let activeView = 'projects';
 let markerUpload = null;
 let modelUpload = null;
 let descriptorUpload = null;
+let descriptorGenerationPromise = null;
+let nftGeneratorPromise = null;
+let descriptorGenerationId = 0;
 let modelUrl = null;
 let toastTimer;
 const thumbUrls = new Map();
@@ -15,6 +18,80 @@ const $ = (id) => document.getElementById(id);
 const dialog = $('project-dialog');
 const modelViewer = $('model-preview');
 const APPEARANCE_KEY = 'innyx-webar:appearance';
+async function loadNftGenerator() {
+  if (window.Module?.calledRun && window.Module.FS) return window.Module;
+  if (nftGeneratorPromise) return nftGeneratorPromise;
+  nftGeneratorPromise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('O gerador de rastreamento demorou para carregar. Verifique a conexão e tente novamente.')), 60000);
+    window.artoolkit_wasm_url = 'https://ar-js-org.github.io/NFT-Marker-Creator/wasm/NftMarkerCreator_wasm.wasm';
+    window.Module = {
+      noExitRuntime: true,
+      onRuntimeInitialized() { clearTimeout(timeout); resolve(window.Module); },
+      onAbort(reason) { clearTimeout(timeout); reject(new Error('O gerador de imagem não iniciou: ' + reason)); }
+    };
+    const script = document.createElement('script');
+    script.src = 'https://ar-js-org.github.io/NFT-Marker-Creator/wasm/NftMarkerCreator_wasm.js';
+    script.async = true;
+    script.onerror = () => { clearTimeout(timeout); reject(new Error('Não foi possível carregar o gerador oficial do AR.js. Verifique a conexão e tente novamente.')); };
+    document.head.appendChild(script);
+  });
+  try { return await nftGeneratorPromise; }
+  catch (error) { nftGeneratorPromise = null; throw error; }
+}
+async function readMarkerPixels(file) {
+  let bitmap;
+  if ('createImageBitmap' in window) bitmap = await createImageBitmap(file);
+  else {
+    bitmap = await new Promise((resolve, reject) => {
+      const image = new Image();
+      const url = URL.createObjectURL(file);
+      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Não consegui abrir a imagem. Escolha uma imagem JPG ou PNG.')); };
+      image.src = url;
+    });
+  }
+  const sourceWidth = bitmap.width, sourceHeight = bitmap.height;
+  const reduction = Math.min(1, 1000 / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * reduction));
+  const height = Math.max(1, Math.round(sourceHeight * reduction));
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.fillStyle = '#fff'; context.fillRect(0, 0, width, height);
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close?.();
+  const rgba = context.getImageData(0, 0, width, height).data;
+  let grayscale = true;
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i] !== rgba[i + 1] || rgba[i] !== rgba[i + 2]) { grayscale = false; break; }
+  }
+  const channels = grayscale ? 1 : 3;
+  const pixels = new Uint8Array(width * height * channels);
+  if (grayscale) {
+    for (let i = 0, j = 0; i < rgba.length; i += 4) pixels[j++] = rgba[i];
+  } else {
+    for (let i = 0, j = 0; i < rgba.length; i += 4) { pixels[j++] = rgba[i]; pixels[j++] = rgba[i + 1]; pixels[j++] = rgba[i + 2]; }
+  }
+  return { pixels, width, height, channels };
+}
+async function generateNftDescriptors(file, generationId) {
+  const module = await loadNftGenerator();
+  const { pixels, width, height, channels } = await readMarkerPixels(file);
+  const memory = module._malloc(pixels.length);
+  try {
+    module.HEAPU8.set(pixels, memory);
+    module._createImageSet(memory, 72, width, height, channels, 'marker', 2, [0, 'marker']);
+  } finally { module._free(memory); }
+  if (generationId !== descriptorGenerationId) return [];
+  return ['fset', 'fset3', 'iset'].map((ext) => {
+    const bytes = module.FS.readFile('asa.' + ext);
+    return { name: 'marker.' + ext, blob: new File([bytes], 'marker.' + ext, { type: 'application/octet-stream' }) };
+  });
+}
+function setDescriptorStatus(message) {
+  const label = $('descriptor-file-name');
+  if (label) label.textContent = message;
+}
 function setAppearance(mode, persist = true) {
   const appearance = ['dark', 'light', 'slim', 'minimal'].includes(mode) ? mode : 'light';
   document.body.dataset.appearance = appearance;
@@ -192,8 +269,8 @@ function clearDialog() {
   $('location-fields').classList.add('hidden'); document.querySelectorAll('.marker-only').forEach((el) => el.classList.remove('hidden'));
   window.__cloudMarkerEdited = false; window.__cloudModelEdited = false; window.__cloudDescriptorsEdited = false;
   markerUpload = null; modelUpload = null;
-  descriptorUpload = null;
-  $('descriptor-files').value = ''; $('descriptor-file-name').textContent = 'Gerados para esta imagem no gerador oficial do AR.js';
+  descriptorUpload = null; descriptorGenerationId++; descriptorGenerationPromise = null;
+  $('descriptor-files').value = ''; setDescriptorStatus('Os arquivos de rastreamento serão preparados automaticamente ao selecionar a imagem.');
   $('download-package').classList.add('hidden');
   if (modelUrl) URL.revokeObjectURL(modelUrl); modelUrl = null; modelViewer.removeAttribute('src');
   $('animation-select').innerHTML = '<option value="">Sem animação</option>';
@@ -280,10 +357,25 @@ $('marker-file').addEventListener('change', (event) => {
   if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { $('dialog-error').textContent = 'Escolha uma imagem JPG, PNG ou WEBP.'; return; }
   if (file.size > 20 * 1024 ** 2) { $('dialog-error').textContent = 'A imagem precisa ter menos de 20 MB.'; return; }
   markerUpload = file; descriptorUpload = [];
-  if (!window.__cloudHydrating) window.__cloudMarkerEdited = true;
-  $('descriptor-files').value = ''; $('descriptor-file-name').textContent = 'Imagem alterada — gere os novos descritores AR.js.';
+  if (!window.__cloudHydrating) { window.__cloudMarkerEdited = true; window.__cloudDescriptorsEdited = true; }
+  $('descriptor-files').value = '';
   $('download-package').classList.add('hidden');
   $('marker-file-name').textContent = file.name; $('dialog-error').textContent = '';
+  const generationId = ++descriptorGenerationId;
+  setDescriptorStatus('Analisando a imagem e preparando o rastreamento automaticamente…');
+  descriptorGenerationPromise = generateNftDescriptors(file, generationId).then((files) => {
+    if (generationId !== descriptorGenerationId) return;
+    descriptorUpload = files;
+    $('dialog-error').textContent = '';
+    setDescriptorStatus('Rastreamento pronto. Os descritores serão incluídos ao salvar e publicar.');
+    const old = projects.find((p) => p.id === $('project-id').value);
+    if (isPackageReady({ markerBlob: markerUpload || old?.markerBlob, modelBlob: modelUpload || old?.modelBlob, descriptorFiles: descriptorUpload })) $('download-package').classList.remove('hidden');
+  }).catch((error) => {
+    if (generationId !== descriptorGenerationId) return;
+    descriptorUpload = [];
+    setDescriptorStatus('Não foi possível preparar esta imagem automaticamente.');
+    $('dialog-error').textContent = error?.message || 'Tente selecionar a imagem novamente.';
+  });
 });
 $('model-file').addEventListener('change', (event) => {
   const file = event.target.files[0]; if (!file) return;
@@ -314,6 +406,13 @@ $('model-scale').addEventListener('input', (event) => { $('scale-value').textCon
 document.getElementById('project-form').addEventListener('submit', async (event) => {
   event.preventDefault(); $('dialog-error').textContent = '';
   const publishNow = event.submitter?.id === 'publish-now';
+  if ($('mode-marker').checked && markerUpload && descriptorGenerationPromise) {
+    await descriptorGenerationPromise;
+    if (publishNow && !descriptorUpload?.length) {
+      $('dialog-error').textContent ||= 'Não foi possível preparar o rastreamento. Escolha outra imagem e tente novamente.';
+      return;
+    }
+  }
   const id = $('project-id').value; const old = projects.find((p) => p.id === id);
   const name = $('project-name').value.trim();
   if (!name) { $('dialog-error').textContent = 'Informe um nome para o projeto.'; return; }
