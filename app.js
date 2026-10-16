@@ -64,7 +64,7 @@ function artFor(project) {
 function render() {
   const query = $('search-input').value.trim().toLocaleLowerCase('pt-BR');
   const ready = projects.filter(isPackageReady).length;
-  const markers = projects.filter((p) => p.mode === 'location' || p.markerBlob || p.markerPreviewUrl).length;
+  const markers = projects.filter((p) => p.markerBlob || p.markerPreviewUrl || p.github?.assets?.markerImagePath).length;
   $('project-count').textContent = projects.length;
   $('stat-projects').textContent = projects.length;
   $('stat-published').textContent = ready;
@@ -79,7 +79,7 @@ function render() {
   const filtered = projects.filter((p) => {
     const matchesQuery = `${p.name} ${p.markerName || ''} ${p.modelName || ''}`.toLocaleLowerCase('pt-BR').includes(query);
     const matchesFilter = activeFilter === 'all' || (activeFilter === 'published' ? isPackageReady(p) : !isPackageReady(p));
-    const matchesView = activeView === 'projects' || (activeView === 'markers' ? !!p.markerBlob : activeView === 'assets' ? !!p.modelBlob || !!p.markerBlob : true);
+    const matchesView = activeView === 'projects' || (activeView === 'markers' ? !!p.markerBlob || !!p.markerPreviewUrl || !!p.github?.assets?.markerImagePath : activeView === 'assets' ? !!p.modelBlob || !!p.github?.assets?.modelPath || !!p.markerBlob || !!p.markerPreviewUrl : true);
     return matchesQuery && matchesFilter && matchesView;
   });
   const list = $('project-list');
