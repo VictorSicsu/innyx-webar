@@ -25,7 +25,8 @@
 .cloud-actions button:hover,.cloud-actions a:hover{text-decoration:underline}
 .cloud-actions .publish-link{font-weight:650}
 .status.published{color:#35a47a}
-.publish-now{color:#6545a9}
+.publish-now{color:#fff;background:#6743c3}
+.publish-now:hover{color:#fff;background:#5331aa}
 .dialog-actions .publish-now{height:34px;font-size:10px}
 .github-dialog{width:min(530px,calc(100vw - 30px));border:0;border-radius:13px;padding:0;color:var(--ink);box-shadow:0 25px 90px #20152a38;max-height:calc(100dvh - 36px)}
 .github-dialog::backdrop{background:#17122288;backdrop-filter:blur(4px)}
@@ -69,3 +70,4 @@
 @keyframes publish-shimmer{to{transform:translateX(100%)}}
 @media(max-width:560px){.publish-progress{left:14px;right:14px;bottom:14px;width:auto;padding:13px 14px}.publish-progress-copy>strong{font-size:11px}}
 @media(prefers-reduced-motion:reduce){.publish-progress-fill{transition:none}.publish-progress[data-state=waiting] .publish-progress-fill:after{animation:none}}
+
