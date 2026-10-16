@@ -1,5 +1,5 @@
 const crypto = require('node:crypto');
-const { config, clearCookie, writeEncryptedCookie, redirect, githubRequest, methodNotAllowed } = require('../../lib/github');
+const { config, repoName, appJwt, installationToken, setCookie, clearCookie, writeEncryptedCookie, redirect, githubRequest, methodNotAllowed } = require('../../lib/github');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
@@ -29,9 +29,46 @@ module.exports = async function handler(req, res) {
     const { body: user } = await githubRequest('https://api.github.com/user', { headers: { Authorization: `Bearer ${tokenBody.access_token}` } });
     if (!user.login) throw new Error('Não foi possível identificar a conta GitHub.');
 
+    // Reuse the installed App so returning users do not have to install it again.
+    let installation;
+    const repositoryPath = `${encodeURIComponent(user.login)}/${encodeURIComponent(repoName())}`;
+    try {
+      ({ body: installation } = await githubRequest(`https://api.github.com/repos/${repositoryPath}/installation`, {
+        headers: { Authorization: `Bearer ${appJwt()}` }
+      }));
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+    if (installation) {
+      if (installation.account?.login?.toLowerCase() !== user.login.toLowerCase() || installation.suspended_at) {
+        throw new Error('A instalação não está disponível para esta conta.');
+      }
+      const access = await installationToken(installation.id, null, 'read');
+      const { body: repository } = await githubRequest(`https://api.github.com/repos/${repositoryPath}`, {
+        headers: { Authorization: `Bearer ${access.token}` }
+      });
+      if (!repository.id || repository.full_name?.toLowerCase() !== `${user.login}/${repoName()}`.toLowerCase()) {
+        throw new Error('Repositório diferente do autorizado.');
+      }
+      if (repository.private) return redirect(res, '/?auth=public-repo-required');
+      writeEncryptedCookie(res, 'innyx_session', {
+        login: user.login,
+        avatarUrl: user.avatar_url || '',
+        installationId: String(installation.id),
+        repositoryId: repository.id,
+        owner: user.login,
+        repo: repository.name,
+        expiresAt: Date.now() + 8 * 60 * 60 * 1000
+      }, 8 * 60 * 60);
+      clearCookie(res, 'innyx_auth_state');
+      clearCookie(res, 'innyx_pending_install');
+      return redirect(res, '/?auth=connected');
+    }
+
     const installationState = crypto.randomBytes(24).toString('base64url');
     writeEncryptedCookie(res, 'innyx_pending_install', { login: user.login, avatarUrl: user.avatar_url || '', installationState }, 600);
-    clearCookie(res, 'innyx_auth_state');
+    // GitHub returns installation OAuth to this callback with the same state.
+    setCookie(res, 'innyx_auth_state', installationState, 600);
     const installationUrl = new URL(`https://github.com/apps/${encodeURIComponent(process.env.GITHUB_APP_SLUG)}/installations/new`);
     installationUrl.searchParams.set('state', installationState);
     res.statusCode = 302;
@@ -43,3 +80,4 @@ module.exports = async function handler(req, res) {
     return redirect(res, '/?auth=oauth-error');
   }
 };
+
