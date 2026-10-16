@@ -325,8 +325,9 @@ function openEditor(project) {
     if (project.markerBlob) setMarkerPreview(project.markerBlob, project.markerName);
     else if (project.markerPreviewUrl) setMarkerPreview(project.markerPreviewUrl, project.markerName);
     else if (project.github?.assets?.markerImagePath) {
-      const repository = project.github.repository || `${window.innyxGithubOwner || 'VictorSicsu'}/${window.innyxGithubRepository || 'innyx-webar'}`;
-      const markerUrl = `https://raw.githubusercontent.com/${repository}/main/${project.github.assets.markerImagePath.split('/').map(encodeURIComponent).join('/')}`;
+      const repository = project.github.repository || `${window.innyxGithubRepository?.owner || window.innyxGithubOwner || 'VictorSicsu'}/${window.innyxGithubRepository?.repo || 'innyx-webar'}`;
+      const branch = project.github.branch || window.innyxGithubRepository?.branch || 'main';
+      const markerUrl = `https://raw.githubusercontent.com/${repository}/${branch}/${project.github.assets.markerImagePath.split('/').map(encodeURIComponent).join('/')}`;
       setMarkerPreview(markerUrl, project.markerName);
     }
     $('model-file-name').textContent = project.modelName || (project.github?.assets?.modelPath ? 'Modelo publicado no GitHub' : 'Nenhum arquivo selecionado');
