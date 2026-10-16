@@ -40,11 +40,13 @@ h1{font-size:clamp(26px,6vw,38px);line-height:1.08;letter-spacing:-.055em;margin
 .ar-loader .spinner{width:30px;height:30px}
 .ar-loader strong{font-size:16px}
 .ar-loader span:last-child{font-size:12px;color:#c2b8cf}
-body.ar-active{overflow:hidden;background:#000}
+body.ar-active{overflow:hidden;background:transparent}
 body.ar-active .viewer-top,body.ar-active .experience-card{display:none}
 body.ar-active .viewer-main{padding:0;min-height:100dvh}
-.ar-scene{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;z-index:1}
-.ar-scene canvas,.ar-scene video{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;object-fit:cover!important}
+.ar-scene{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;z-index:1!important;background:transparent!important}
+.ar-scene canvas{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;z-index:1!important;background:transparent!important}
+body.ar-active>#arjs-video{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;margin:0!important;object-fit:cover!important;z-index:0!important;display:block!important}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:560px){.viewer-top{height:58px}.viewer-main{min-height:calc(100dvh - 58px);padding:18px 12px 28px}.experience-card{border-radius:16px}.ar-hint{font-size:11px;top:max(62px,calc(env(safe-area-inset-top) + 56px));max-width:calc(100vw - 32px)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
+
