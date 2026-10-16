@@ -92,6 +92,25 @@ function setDescriptorStatus(message) {
   const label = $('descriptor-file-name');
   if (label) label.textContent = message;
 }
+function prepareMarkerDescriptors(file) {
+  const generationId = ++descriptorGenerationId;
+  setDescriptorStatus('Analisando a imagem e preparando o rastreamento automaticamente…');
+  descriptorGenerationPromise = generateNftDescriptors(file, generationId).then((files) => {
+    if (generationId !== descriptorGenerationId) return;
+    descriptorUpload = files;
+    $('dialog-error').textContent = '';
+    setDescriptorStatus('Rastreamento pronto. Os descritores serão incluídos ao salvar e publicar.');
+    const old = projects.find((p) => p.id === $('project-id').value);
+    if (isPackageReady({ markerBlob: markerUpload || old?.markerBlob, modelBlob: modelUpload || old?.modelBlob, descriptorFiles: descriptorUpload })) $('download-package').classList.remove('hidden');
+  }).catch((error) => {
+    if (generationId !== descriptorGenerationId) return;
+    descriptorUpload = [];
+    setDescriptorStatus('Não foi possível preparar esta imagem automaticamente.');
+    $('dialog-error').textContent = error?.message || 'Tente selecionar a imagem novamente.';
+  });
+  return descriptorGenerationPromise;
+}
+
 function setAppearance(mode, persist = true) {
   const appearance = ['dark', 'light', 'slim', 'minimal'].includes(mode) ? mode : 'light';
   document.body.dataset.appearance = appearance;
@@ -287,6 +306,17 @@ function openEditor(project) {
     $('marker-file-name').textContent = project.markerName || (project.github?.assets?.markerImagePath ? 'Imagem publicada no GitHub' : 'Nenhum arquivo selecionado');
     $('model-file-name').textContent = project.modelName || (project.github?.assets?.modelPath ? 'Modelo publicado no GitHub' : 'Nenhum arquivo selecionado');
     if (project.descriptorFiles?.length) $('descriptor-file-name').textContent = project.descriptorFiles.map((f) => f.name).join(' · ');
+    if (project.mode !== 'location' && project.markerBlob) {
+      const remoteDescriptors = project.github?.assets?.descriptorPaths || [];
+      const hasDescriptors = ['fset','fset3','iset'].every((ext) =>
+        project.descriptorFiles?.some((file) => file.name.toLowerCase().endsWith('.' + ext))
+        || remoteDescriptors.some((path) => path.toLowerCase().endsWith('.' + ext)));
+      if (!hasDescriptors) {
+        markerUpload = project.markerBlob;
+        window.__cloudDescriptorsEdited = true;
+        prepareMarkerDescriptors(project.markerBlob);
+      }
+    }
     if (isPackageReady(project) && project.mode !== 'location' && !project.github?.publishedAt) $('download-package').classList.remove('hidden');
     if (project.modelBlob) setModelFile(project.modelBlob, project.modelName, project.animation || '', project.scale || 1);
   }
@@ -361,21 +391,7 @@ $('marker-file').addEventListener('change', (event) => {
   $('descriptor-files').value = '';
   $('download-package').classList.add('hidden');
   $('marker-file-name').textContent = file.name; $('dialog-error').textContent = '';
-  const generationId = ++descriptorGenerationId;
-  setDescriptorStatus('Analisando a imagem e preparando o rastreamento automaticamente…');
-  descriptorGenerationPromise = generateNftDescriptors(file, generationId).then((files) => {
-    if (generationId !== descriptorGenerationId) return;
-    descriptorUpload = files;
-    $('dialog-error').textContent = '';
-    setDescriptorStatus('Rastreamento pronto. Os descritores serão incluídos ao salvar e publicar.');
-    const old = projects.find((p) => p.id === $('project-id').value);
-    if (isPackageReady({ markerBlob: markerUpload || old?.markerBlob, modelBlob: modelUpload || old?.modelBlob, descriptorFiles: descriptorUpload })) $('download-package').classList.remove('hidden');
-  }).catch((error) => {
-    if (generationId !== descriptorGenerationId) return;
-    descriptorUpload = [];
-    setDescriptorStatus('Não foi possível preparar esta imagem automaticamente.');
-    $('dialog-error').textContent = error?.message || 'Tente selecionar a imagem novamente.';
-  });
+  prepareMarkerDescriptors(file);
 });
 $('model-file').addEventListener('change', (event) => {
   const file = event.target.files[0]; if (!file) return;
