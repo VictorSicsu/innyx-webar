@@ -58,12 +58,13 @@ function artFor(project) {
     if (!thumbUrls.has(project.id)) thumbUrls.set(project.id, URL.createObjectURL(project.markerBlob));
     return `<img src="${thumbUrls.get(project.id)}" alt="" style="width:100%;height:100%;object-fit:cover">`;
   }
-  return project.symbol || '✳';
+  if (project.markerPreviewUrl) return `<img src="${escapeHtml(project.markerPreviewUrl)}" alt="" style="width:100%;height:100%;object-fit:cover">`;
+  return project.mode === 'location' ? '⌖' : (project.symbol || '✳');
 }
 function render() {
   const query = $('search-input').value.trim().toLocaleLowerCase('pt-BR');
   const ready = projects.filter(isPackageReady).length;
-  const markers = projects.filter((p) => p.markerBlob).length;
+  const markers = projects.filter((p) => p.mode === 'location' || p.markerBlob || p.markerPreviewUrl).length;
   $('project-count').textContent = projects.length;
   $('stat-projects').textContent = projects.length;
   $('stat-published').textContent = ready;
@@ -84,7 +85,7 @@ function render() {
   const list = $('project-list');
   list.innerHTML = filtered.map((p) => `<article class="project-row" data-id="${escapeHtml(p.id)}">
     <div class="project-main"><div class="project-thumb ${p.tint || 'violet'}">${artFor(p)}</div><div class="project-info"><strong>${escapeHtml(p.name)}</strong><span>${p.updatedAt ? `Editado ${formatDate(p.updatedAt)}` : 'Rascunho novo'}</span></div></div>
-    <div class="marker-cell"><span class="marker-mini ${p.markerBlob ? '' : 'empty'}">${p.markerBlob ? '⌗' : '＋'}</span><span class="marker-name">${escapeHtml(p.markerName || 'Adicionar imagem')}</span></div>
+    <div class="marker-cell"><span class="marker-mini ${p.markerBlob ? '' : 'empty'}">${p.mode === 'location' ? '⌖' : p.markerBlob ? '⌗' : '＋'}</span><span class="marker-name">${escapeHtml(p.mode === 'location' ? (p.latitude != null && p.longitude != null ? `${p.latitude}, ${p.longitude}` : 'Definir coordenadas GPS') : (p.markerName || 'Adicionar imagem'))}</span></div>
     <div class="model-cell"><span class="model-cube">◇</span><span class="model-name">${escapeHtml(p.modelName || 'Adicionar GLB')}</span></div>
     <div class="status-cell"><span class="status ${isPackageReady(p) ? 'ready' : 'draft'}">${isPackageReady(p) ? 'Pronto' : 'Rascunho'}</span></div>
     <span class="row-date">${p.updatedAt ? formatDate(p.updatedAt) : '—'}</span><button class="row-more" data-action="menu" aria-label="Opções de ${escapeHtml(p.name)}">···</button>
@@ -98,6 +99,9 @@ function clearDialog() {
   $('project-form').reset(); $('project-id').value = ''; $('dialog-error').textContent = '';
   $('marker-file-name').textContent = 'Nenhum arquivo selecionado'; $('model-file-name').textContent = 'Nenhum arquivo selecionado';
   $('model-editor').classList.add('hidden'); $('delete-project').classList.add('hidden'); $('dialog-title').textContent = 'Nova experiência';
+  $('mode-marker').checked = true; $('mode-location').checked = false; $('latitude').value = ''; $('longitude').value = ''; $('altitude').value = '';
+  $('location-fields').classList.add('hidden'); document.querySelectorAll('.marker-only').forEach((el) => el.classList.remove('hidden'));
+  window.__cloudMarkerEdited = false; window.__cloudModelEdited = false; window.__cloudDescriptorsEdited = false;
   markerUpload = null; modelUpload = null;
   descriptorUpload = null;
   $('descriptor-files').value = ''; $('descriptor-file-name').textContent = 'Gerados para esta imagem no gerador oficial do AR.js';
@@ -110,11 +114,14 @@ function openEditor(project) {
   clearDialog();
   if (project) {
     $('project-id').value = project.id; $('project-name').value = project.name;
+    $('mode-location').checked = project.mode === 'location'; $('mode-marker').checked = project.mode !== 'location';
+    $('latitude').value = project.latitude ?? ''; $('longitude').value = project.longitude ?? ''; $('altitude').value = project.altitude ?? '';
+    $('location-fields').classList.toggle('hidden', project.mode !== 'location'); document.querySelectorAll('.marker-only').forEach((el) => el.classList.toggle('hidden', project.mode === 'location'));
     $('dialog-title').textContent = 'Editar experiência'; $('delete-project').classList.remove('hidden');
-    $('marker-file-name').textContent = project.markerName || 'Nenhum arquivo selecionado';
-    $('model-file-name').textContent = project.modelName || 'Nenhum arquivo selecionado';
+    $('marker-file-name').textContent = project.markerName || (project.github?.assets?.markerImagePath ? 'Imagem publicada no GitHub' : 'Nenhum arquivo selecionado');
+    $('model-file-name').textContent = project.modelName || (project.github?.assets?.modelPath ? 'Modelo publicado no GitHub' : 'Nenhum arquivo selecionado');
     if (project.descriptorFiles?.length) $('descriptor-file-name').textContent = project.descriptorFiles.map((f) => f.name).join(' · ');
-    if (isPackageReady(project)) $('download-package').classList.remove('hidden');
+    if (isPackageReady(project) && project.mode !== 'location' && !project.github?.publishedAt) $('download-package').classList.remove('hidden');
     if (project.modelBlob) setModelFile(project.modelBlob, project.modelName, project.animation || '', project.scale || 1);
   }
   dialog.showModal(); setTimeout(() => $('project-name').focus(), 60);
@@ -136,13 +143,18 @@ function setModelFile(file, name, selectedAnimation = '', scale = 1) {
 }
 function isPackageReady(project) {
   const exts = (project.descriptorFiles || []).map((file) => file.name.split('.').pop().toLowerCase());
-  return !!project.markerBlob && !!project.modelBlob && ['fset','fset3','iset'].every((ext) => exts.includes(ext));
+  const hasModel = !!project.modelBlob || !!project.github?.assets?.modelPath;
+  if (project.mode === 'location') return hasModel && project.latitude != null && project.longitude != null && Number.isFinite(Number(project.latitude)) && Number.isFinite(Number(project.longitude));
+  const remoteDescriptors = project.github?.assets?.descriptorPaths || [];
+  return hasModel && !!(project.markerBlob || project.markerPreviewUrl || project.github?.assets?.markerImagePath)
+    && (['fset','fset3','iset'].every((ext) => exts.includes(ext)) || ['fset','fset3','iset'].every((ext) => remoteDescriptors.some((path) => path.endsWith(`.${ext}`))));
 }
 async function exportExperience(project) {
   if (!isPackageReady(project)) { notify('Adicione o modelo GLB e os 3 descritores NFT para baixar a experiência.'); return; }
   if (!window.JSZip) { notify('O gerador de pacote não carregou. Atualize a página e tente novamente.'); return; }
   const zip = new JSZip();
   const assets = zip.folder('assets');
+  if (project.mode === 'location') { notify('Para compartilhar projetos Local Based, use Salvar e publicar.'); return; }
   const markerExt = project.markerName.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
   const animation = project.animation ? `animation-mixer="clip: ${escapeHtml(project.animation)}; loop: repeat"` : '';
   const scale = Math.max(0.1, Math.min(3, Number(project.scale) || 1));
@@ -179,6 +191,7 @@ $('marker-file').addEventListener('change', (event) => {
   if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { $('dialog-error').textContent = 'Escolha uma imagem JPG, PNG ou WEBP.'; return; }
   if (file.size > 20 * 1024 ** 2) { $('dialog-error').textContent = 'A imagem precisa ter menos de 20 MB.'; return; }
   markerUpload = file; descriptorUpload = [];
+  if (!window.__cloudHydrating) window.__cloudMarkerEdited = true;
   $('descriptor-files').value = ''; $('descriptor-file-name').textContent = 'Imagem alterada — gere novos descritores NFT.';
   $('download-package').classList.add('hidden');
   $('marker-file-name').textContent = file.name; $('dialog-error').textContent = '';
@@ -186,8 +199,9 @@ $('marker-file').addEventListener('change', (event) => {
 $('model-file').addEventListener('change', (event) => {
   const file = event.target.files[0]; if (!file) return;
   if (!file.name.toLowerCase().endsWith('.glb')) { $('dialog-error').textContent = 'Escolha um modelo .glb.'; return; }
-  if (file.size > 150 * 1024 ** 2) { $('dialog-error').textContent = 'O GLB precisa ter menos de 150 MB.'; return; }
+  if (file.size > 50 * 1024 ** 2) { $('dialog-error').textContent = 'O GLB precisa ter até 50 MB para ser hospedado no repositório GitHub.'; return; }
   $('dialog-error').textContent = ''; setModelFile(file, file.name);
+  if (!window.__cloudHydrating) window.__cloudModelEdited = true;
 });
 $('descriptor-files').addEventListener('change', (event) => {
   const files = [...event.target.files];
@@ -199,6 +213,7 @@ $('descriptor-files').addEventListener('change', (event) => {
     $('dialog-error').textContent = 'Os descritores NFT precisam incluir os três formatos: .fset, .fset3 e .iset.'; return;
   }
   descriptorUpload = files.map((file) => ({ name: file.name, blob: file }));
+  if (!window.__cloudHydrating) window.__cloudDescriptorsEdited = true;
   $('descriptor-file-name').textContent = files.map((file) => file.name).join(' · ');
   $('dialog-error').textContent = '';
   const old = projects.find((p) => p.id === $('project-id').value);
@@ -209,10 +224,17 @@ $('model-scale').addEventListener('input', (event) => { $('scale-value').textCon
 
 document.getElementById('project-form').addEventListener('submit', async (event) => {
   event.preventDefault(); $('dialog-error').textContent = '';
+  const publishNow = event.submitter?.id === 'publish-now';
   const id = $('project-id').value; const old = projects.find((p) => p.id === id);
   const name = $('project-name').value.trim();
   if (!name) { $('dialog-error').textContent = 'Informe um nome para o projeto.'; return; }
   const project = { ...(old || {}), id: id || newId(), name,
+    mode: $('mode-location').checked ? 'location' : 'marker',
+    markerChanged: !!window.__cloudMarkerEdited, modelChanged: !!window.__cloudModelEdited,
+    descriptorsChanged: !!window.__cloudDescriptorsEdited,
+    latitude: $('latitude').value === '' ? null : Number($('latitude').value),
+    longitude: $('longitude').value === '' ? null : Number($('longitude').value),
+    altitude: $('altitude').value === '' ? null : Number($('altitude').value),
     markerBlob: markerUpload || old?.markerBlob || null, markerName: markerUpload?.name || old?.markerName || '',
     modelBlob: modelUpload || old?.modelBlob || null, modelName: modelUpload?.name || old?.modelName || '',
     animation: $('animation-select').value || '', scale: Number($('model-scale').value || 1),
@@ -220,8 +242,11 @@ document.getElementById('project-form').addEventListener('submit', async (event)
     tint: old?.tint || ['violet','peach','blue','green'][projects.length % 4],
     updatedAt: Date.now(), createdAt: old?.createdAt || Date.now() };
   if (markerUpload && thumbUrls.has(project.id)) { URL.revokeObjectURL(thumbUrls.get(project.id)); thumbUrls.delete(project.id); }
-  try { await saveRecord(project); await refresh(); dialog.close(); notify('Projeto salvo neste navegador.'); }
-  catch { $('dialog-error').textContent = 'Não foi possível salvar. Confira o espaço disponível no navegador.'; }
+  try {
+    await saveRecord(project); await refresh(); dialog.close();
+    if (publishNow && window.publishProjectById) await window.publishProjectById(project.id);
+    else notify('Rascunho salvo. Publique no GitHub para gerar o link compartilhável.');
+  } catch { $('dialog-error').textContent = 'Não foi possível salvar. Confira o espaço disponível no navegador.'; }
 });
 $('project-list').addEventListener('click', async (event) => {
   const row = event.target.closest('.project-row'); if (!row) return;
@@ -230,7 +255,7 @@ $('project-list').addEventListener('click', async (event) => {
     const current = row.querySelector('.row-menu');
     document.querySelectorAll('.row-menu').forEach((menu) => menu.remove());
     if (current) return;
-    row.insertAdjacentHTML('beforeend', `<div class="row-menu"><button data-action="edit">Editar projeto</button>${isPackageReady(item) ? '<button data-action="download">Baixar experiência</button>' : ''}<button class="menu-danger" data-action="delete">Excluir projeto</button></div>`);
+    row.insertAdjacentHTML('beforeend', `<div class="row-menu"><button data-action="edit">Editar projeto</button>${isPackageReady(item) && item.mode !== 'location' && !item.github?.publishedAt ? '<button data-action="download">Baixar pacote</button>' : ''}<button class="menu-danger" data-action="delete">Excluir projeto</button></div>`);
     return;
   }
   const action = event.target.closest('[data-action]')?.dataset.action;
@@ -294,4 +319,5 @@ $('import-input').addEventListener('change', async (event) => {
   try { db = await openDatabase(); await refresh(); }
   catch { notify('O armazenamento local não está disponível. Abra este site em uma janela normal.'); }
 })();
+
 

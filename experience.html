@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#17111f">
+  <meta name="description" content="Experiência WebAR publicada pelo InnyxWebAR Studio.">
+  <title>Experiência WebAR · INNYX</title>
+  <link rel="stylesheet" href="./experience.css">
+</head>
+<body>
+  <header class="viewer-top">
+    <a class="viewer-brand" href="./"><span class="brand-symbol">I</span><span>INNYX<small>WEB AR</small></span></a>
+    <a class="back-link" href="./">Studio</a>
+  </header>
+  <main class="viewer-main">
+    <section class="experience-card" id="experience-card">
+      <div class="eyebrow">INNYX · WEB AR</div>
+      <h1 id="experience-title">Carregando experiência…</h1>
+      <p id="experience-description">Preparando arquivos e rastreamento.</p>
+      <div class="experience-meta" id="experience-meta"></div>
+      <div class="viewer-status" id="viewer-status"><span class="spinner"></span><span>Carregando experiência…</span></div>
+      <div class="marker-preview" id="marker-preview"></div>
+      <button class="start-button" id="start-ar" type="button" disabled>Iniciar experiência</button>
+      <p class="privacy-copy" id="permission-copy">Ao iniciar, o navegador solicitará acesso à câmera e, no modo Local Based, à localização.</p>
+      <a class="studio-link" href="./">Criar uma experiência no InnyxWebAR ↗</a>
+    </section>
+    <div class="ar-hud hidden" id="ar-hud">
+      <div class="ar-hud-brand"><span class="brand-symbol">I</span> INNYX</div>
+      <div class="ar-hint" id="ar-hint">Aponte a câmera para a imagem do marcador.</div>
+      <button type="button" id="exit-ar" aria-label="Fechar câmera">×</button>
+    </div>
+  </main>
+  <div class="ar-loader hidden" id="ar-loader"><span class="spinner"></span><strong>Ativando WebAR…</strong><span>Permita o acesso à câmera quando solicitado.</span></div>
+  <script src="./experience.js"></script>
+</body>
+</html>
+
