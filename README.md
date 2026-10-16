@@ -4,7 +4,7 @@ Portal responsivo para preparar experiências WebAR com a identidade INNYX, mode
 
 ## Abrir e publicar
 
-O projeto é HTML, CSS e JavaScript estáticos. Para publicar, envie os arquivos da raiz a um repositório GitHub e conecte-o a um projeto Vercel com framework **Other**, sem comando de build e sem diretório de saída. O endereço HTTPS gerado pela Vercel permite abrir a experiência em navegadores móveis que suportam câmera e WebGL.
+O projeto está publicado em [innyx-webar.vercel.app](https://innyx-webar.vercel.app/) e conectado ao repositório [VictorSicsu/innyx-webar](https://github.com/VictorSicsu/innyx-webar). O projeto Vercel `innyx-webar` acompanha a branch `main`; commits nessa branch iniciam novos deploys. O portal é HTML, CSS e JavaScript estáticos e o endereço HTTPS permite abrir experiências em navegadores móveis que suportam câmera e WebGL.
 
 ## Marcadores e GLB
 
