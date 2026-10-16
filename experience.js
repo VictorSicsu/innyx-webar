@@ -1,10 +1,11 @@
 (() => {
-  const OWNER = 'VictorSicsu';
-  const REPO = 'innyx-webar';
-  const BRANCH = 'main';
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   const id = params.get('id') || location.pathname.match(/^\/p\/([^/]+)/)?.[1] || '';
+  const safeSegment = (value, fallback) => /^[A-Za-z0-9_.-]{1,100}$/.test(value || '') ? value : fallback;
+  const OWNER = safeSegment(params.get('owner'), 'VictorSicsu');
+  const REPO = safeSegment(params.get('repo'), 'innyx-webar');
+  const BRANCH = 'main';
   const rawBase = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
   let manifest;
   let scene;
@@ -208,4 +209,3 @@
     showStatus(error.message, true);
   });
 })();
-

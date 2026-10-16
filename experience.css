@@ -48,4 +48,3 @@ body.ar-active .viewer-main{padding:0;min-height:100dvh}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:560px){.viewer-top{height:58px}.viewer-main{min-height:calc(100dvh - 58px);padding:18px 12px 28px}.experience-card{border-radius:16px}.ar-hint{font-size:11px;top:max(62px,calc(env(safe-area-inset-top) + 56px));max-width:calc(100vw - 32px)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
-
