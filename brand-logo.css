@@ -1,0 +1,26 @@
+.brand-logo{position:relative;display:block;flex:none;width:126px;aspect-ratio:1028/383;overflow:hidden}
+.brand-logo img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain}
+.brand-logo .brand-logo-symbol{display:none;clip-path:inset(0 65% 0 0)}
+
+.sidebar .brand{height:47px;min-height:47px}
+.auth-brand{height:auto}
+.auth-gate .auth-brand>.brand-logo{display:block;width:180px}
+.viewer-brand .brand-logo{width:126px}
+.ar-hud-brand .brand-logo{width:33px;height:33px;aspect-ratio:auto}
+.ar-hud-brand .brand-logo img{width:89px;height:33px;max-width:none;object-fit:fill}
+
+.auth-brand .brand-logo-base,
+body[data-appearance="dark"] .sidebar .brand-logo-base,
+.viewer-brand .brand-logo-base,
+.ar-hud-brand .brand-logo-base{filter:brightness(0) invert(1)}
+
+.auth-brand .brand-logo-symbol,
+body[data-appearance="dark"] .sidebar .brand-logo-symbol,
+.viewer-brand .brand-logo-symbol,
+.ar-hud-brand .brand-logo-symbol{display:block}
+
+@media(max-width:800px){
+  .sidebar .brand{width:42px;height:38px;min-height:38px;margin:0 auto 28px;justify-content:flex-start}
+  .sidebar .brand>.brand-logo{display:block;width:38px;height:38px;aspect-ratio:auto}
+  .sidebar .brand-logo img{width:102px;height:38px;max-width:none;object-fit:fill}
+}
