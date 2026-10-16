@@ -24,16 +24,16 @@ async function loadNftGenerator() {
   if (nftGeneratorPromise) return nftGeneratorPromise;
   nftGeneratorPromise = new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('O gerador de rastreamento demorou para carregar. Verifique a conexão e tente novamente.')), 60000);
-    window.artoolkit_wasm_url = 'https://ar-js-org.github.io/NFT-Marker-Creator/wasm/NftMarkerCreator_wasm.wasm';
+    window.artoolkit_wasm_url = 'https://raw.githubusercontent.com/AR-js-org/NFT-Marker-Creator/9a09b213d063123fa87f95e815cb2c099e4ab2c1/docs/wasm/NftMarkerCreator_wasm.wasm';
     window.Module = {
       noExitRuntime: true,
       onRuntimeInitialized() { clearTimeout(timeout); resolve(window.Module); },
       onAbort(reason) { clearTimeout(timeout); reject(new Error('O gerador de imagem não iniciou: ' + reason)); }
     };
     const script = document.createElement('script');
-    script.src = 'https://ar-js-org.github.io/NFT-Marker-Creator/wasm/NftMarkerCreator_wasm.js';
+    script.src = 'https://raw.githubusercontent.com/AR-js-org/NFT-Marker-Creator/9a09b213d063123fa87f95e815cb2c099e4ab2c1/docs/wasm/NftMarkerCreator_wasm.js';
     script.async = true;
-    script.onerror = () => { clearTimeout(timeout); reject(new Error('Não foi possível carregar o gerador oficial do AR.js. Verifique a conexão e tente novamente.')); };
+    script.onerror = () => { clearTimeout(timeout); reject(new Error('Não foi possível carregar os arquivos oficiais do gerador de marcadores. Verifique a conexão e tente novamente.')); };
     document.head.appendChild(script);
   });
   try { return await nftGeneratorPromise; }
