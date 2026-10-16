@@ -7,10 +7,11 @@
   <meta name="description" content="Experiência WebAR publicada pelo InnyxWebAR Studio.">
   <title>Experiência WebAR · INNYX</title>
   <link rel="stylesheet" href="./experience.css">
+  <link rel="stylesheet" href="./brand-logo.css">
 </head>
 <body>
   <header class="viewer-top">
-    <a class="viewer-brand" href="./"><span class="brand-symbol">I</span><span>INNYX<small>WEB AR</small></span></a>
+    <a class="viewer-brand" href="./" aria-label="INNYX WebAR Studio"><span class="brand-logo" aria-hidden="true"><img class="brand-logo-base" src="./assets/innyx-webar-logo.png" width="1028" height="383" alt=""><img class="brand-logo-symbol" src="./assets/innyx-webar-logo.png" width="1028" height="383" alt=""></span></a>
     <a class="back-link" href="./">Studio</a>
   </header>
   <main class="viewer-main">
@@ -26,7 +27,7 @@
       <a class="studio-link" href="./">Criar uma experiência no InnyxWebAR ↗</a>
     </section>
     <div class="ar-hud hidden" id="ar-hud">
-      <div class="ar-hud-brand"><span class="brand-symbol">I</span> INNYX</div>
+      <div class="ar-hud-brand" aria-label="INNYX WebAR"><span class="brand-logo" aria-hidden="true"><img class="brand-logo-base" src="./assets/innyx-webar-logo.png" width="1028" height="383" alt=""><img class="brand-logo-symbol" src="./assets/innyx-webar-logo.png" width="1028" height="383" alt=""></span></div>
       <div class="ar-hint" id="ar-hint">Aponte a câmera para a imagem do marcador.</div>
       <button type="button" id="exit-ar" aria-label="Fechar câmera">×</button>
     </div>
