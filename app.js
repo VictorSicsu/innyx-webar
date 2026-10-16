@@ -239,7 +239,7 @@ function isPackageReady(project) {
     && (['fset','fset3','iset'].every((ext) => exts.includes(ext)) || ['fset','fset3','iset'].every((ext) => remoteDescriptors.some((path) => path.endsWith(`.${ext}`))));
 }
 async function exportExperience(project) {
-  if (!isPackageReady(project)) { notify('Adicione o modelo GLB e os 3 descritores NFT para baixar a experiência.'); return; }
+  if (!isPackageReady(project)) { notify('Adicione o modelo GLB e os 3 descritores AR.js (.fset, .fset3 e .iset) para baixar a experiência.'); return; }
   if (!window.JSZip) { notify('O gerador de pacote não carregou. Atualize a página e tente novamente.'); return; }
   const zip = new JSZip();
   const assets = zip.folder('assets');
@@ -281,7 +281,7 @@ $('marker-file').addEventListener('change', (event) => {
   if (file.size > 20 * 1024 ** 2) { $('dialog-error').textContent = 'A imagem precisa ter menos de 20 MB.'; return; }
   markerUpload = file; descriptorUpload = [];
   if (!window.__cloudHydrating) window.__cloudMarkerEdited = true;
-  $('descriptor-files').value = ''; $('descriptor-file-name').textContent = 'Imagem alterada — gere novos descritores NFT.';
+  $('descriptor-files').value = ''; $('descriptor-file-name').textContent = 'Imagem alterada — gere os novos descritores AR.js.';
   $('download-package').classList.add('hidden');
   $('marker-file-name').textContent = file.name; $('dialog-error').textContent = '';
 });
@@ -299,7 +299,7 @@ $('descriptor-files').addEventListener('change', (event) => {
   if (files.length !== 3 || !['fset','fset3','iset'].every((ext) => found.has(ext))) {
     descriptorUpload = null; event.target.value = '';
     $('descriptor-file-name').textContent = 'Selecione um arquivo .fset, um .fset3 e um .iset.';
-    $('dialog-error').textContent = 'Os descritores NFT precisam incluir os três formatos: .fset, .fset3 e .iset.'; return;
+    $('dialog-error').textContent = 'Os descritores AR.js precisam incluir os três formatos: .fset, .fset3 e .iset.'; return;
   }
   descriptorUpload = files.map((file) => ({ name: file.name, blob: file }));
   if (!window.__cloudHydrating) window.__cloudDescriptorsEdited = true;
