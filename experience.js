@@ -11,6 +11,9 @@
   let scene;
   let arStarted = false;
   let arStartId = 0;
+  let cameraStartupTimer = 0;
+  let cameraFrameTimer = 0;
+  let cameraEventHandlers = null;
 
   function showStatus(message, error = false) {
     const status = $('viewer-status');
@@ -82,8 +85,100 @@
     $('ar-hint').textContent = message;
   }
 
+  function cameraErrorMessage(error) {
+    const name = error?.name || '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') return 'A câmera foi bloqueada. Permita o acesso à câmera para este site nas configurações do navegador e tente novamente.';
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return 'Nenhuma câmera foi encontrada neste dispositivo.';
+    if (name === 'NotReadableError' || name === 'TrackStartError') return 'A câmera está sendo usada por outro aplicativo. Feche-o e tente novamente.';
+    if (name === 'OverconstrainedError') return 'A câmera traseira solicitada não está disponível. Verifique o dispositivo e tente novamente.';
+    return 'Não foi possível iniciar a câmera. Confira a permissão do navegador e feche outros aplicativos que possam estar usando a câmera.';
+  }
+
+  function cleanupCameraEvents() {
+    if (cameraStartupTimer) window.clearTimeout(cameraStartupTimer);
+    if (cameraFrameTimer) window.clearTimeout(cameraFrameTimer);
+    cameraStartupTimer = 0;
+    cameraFrameTimer = 0;
+    if (!cameraEventHandlers) return;
+    window.removeEventListener('camera-init', cameraEventHandlers.onInit);
+    window.removeEventListener('camera-error', cameraEventHandlers.onError);
+    window.removeEventListener('arjs-video-loaded', cameraEventHandlers.onVideoLoaded);
+    cameraEventHandlers = null;
+  }
+
+  function styleARVideo(video) {
+    Object.assign(video.style, {
+      position: 'fixed', inset: '0', width: '100vw', height: '100dvh',
+      margin: '0', objectFit: 'cover', zIndex: '0', display: 'block'
+    });
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+    video.muted = true;
+  }
+
+  function markCameraReady(local, startId) {
+    if (!arStarted || startId !== arStartId) return;
+    window.clearTimeout(cameraStartupTimer);
+    window.clearTimeout(cameraFrameTimer);
+    cameraStartupTimer = 0;
+    cameraFrameTimer = 0;
+    $('ar-loader').classList.add('hidden');
+    setARStatus(local ? 'Câmera ativa · buscando posição GPS…' : 'Câmera ativa · aponte para a imagem do marcador.');
+  }
+
+  function waitForARVideo(local, startId) {
+    let attempts = 0;
+    const findVideo = () => {
+      if (!arStarted || startId !== arStartId) return;
+      const video = document.getElementById('arjs-video');
+      if (!video) {
+        if (++attempts < 120) window.requestAnimationFrame(findVideo);
+        return;
+      }
+      styleARVideo(video);
+      const checkFrame = () => {
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
+          markCameraReady(local, startId);
+          return;
+        }
+        cameraFrameTimer = window.setTimeout(checkFrame, 200);
+      };
+      const playResult = video.play();
+      if (playResult?.catch) playResult.catch((error) => {
+        if (arStarted && startId === arStartId) failAR(cameraErrorMessage(error));
+      });
+      checkFrame();
+    };
+    findVideo();
+  }
+
+  function watchCameraStartup(local, startId) {
+    cleanupCameraEvents();
+    const onInit = () => waitForARVideo(local, startId);
+    const onVideoLoaded = () => {
+      const video = document.getElementById('arjs-video');
+      if (video) styleARVideo(video);
+      if (video?.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) markCameraReady(local, startId);
+    };
+    const onError = (event) => {
+      if (!arStarted || startId !== arStartId) return;
+      failAR(cameraErrorMessage(event.error || event.detail?.error || event));
+    };
+    cameraEventHandlers = { onInit, onError, onVideoLoaded };
+    window.addEventListener('camera-init', onInit);
+    window.addEventListener('camera-error', onError);
+    window.addEventListener('arjs-video-loaded', onVideoLoaded);
+    cameraStartupTimer = window.setTimeout(() => {
+      if (arStarted && startId === arStartId) {
+        failAR('A câmera não enviou imagem. Permita o acesso à câmera e tente novamente; se a permissão já estiver ativa, feche outros aplicativos que a estejam usando.');
+      }
+    }, 20000);
+  }
+
   function attachARScene(data) {
     const local = data.mode === 'location';
+    const startId = arStartId;
+    watchCameraStartup(local, startId);
     scene = document.createElement('a-scene');
     scene.className = 'ar-scene';
     scene.setAttribute('embedded', '');
@@ -92,22 +187,8 @@
     scene.setAttribute('arjs', local
       ? 'sourceType: webcam; videoTexture: true; debugUIEnabled: false'
       : 'trackingMethod: best; sourceType: webcam; debugUIEnabled: false');
-    scene.addEventListener('camera-init', () => {
-      $('ar-loader').classList.add('hidden');
-      setARStatus(local ? 'AR ativo · aproxime-se do ponto publicado.' : 'Aponte a câmera para a imagem do marcador.');
-    }, { once: true });
-    scene.addEventListener('camera-error', () => failAR('Não foi possível iniciar a câmera. Verifique a permissão do navegador e tente novamente.'), { once: true });
     scene.addEventListener('arjs-nft-loaded', () => {
-      $('ar-loader').classList.add('hidden');
       setARStatus('Imagem reconhecida · mova o celular lentamente para enquadrar.');
-    }, { once: true });
-    scene.addEventListener('loaded', () => {
-      window.setTimeout(() => {
-        if (arStarted && !$('ar-loader').classList.contains('hidden')) {
-          $('ar-loader').classList.add('hidden');
-          setARStatus(local ? 'Buscando posição GPS…' : 'Câmera ativa · aponte para a imagem do marcador.');
-        }
-      }, 9000);
     }, { once: true });
 
     const camera = document.createElement(local ? 'a-camera' : 'a-entity');
@@ -154,9 +235,11 @@
 
   function stopAR() {
     arStartId += 1;
+    cleanupCameraEvents();
     document.querySelectorAll('video').forEach((video) => {
       video.srcObject?.getTracks?.().forEach((track) => track.stop());
       video.srcObject = null;
+      video.remove();
     });
     scene?.remove();
     scene = null;
@@ -209,3 +292,4 @@
     showStatus(error.message, true);
   });
 })();
+
