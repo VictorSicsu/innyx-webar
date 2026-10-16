@@ -70,4 +70,3 @@
 @keyframes publish-shimmer{to{transform:translateX(100%)}}
 @media(max-width:560px){.publish-progress{left:14px;right:14px;bottom:14px;width:auto;padding:13px 14px}.publish-progress-copy>strong{font-size:11px}}
 @media(prefers-reduced-motion:reduce){.publish-progress-fill{transition:none}.publish-progress[data-state=waiting] .publish-progress-fill:after{animation:none}}
-

@@ -14,6 +14,21 @@ const memoryProjects = new Map();
 const $ = (id) => document.getElementById(id);
 const dialog = $('project-dialog');
 const modelViewer = $('model-preview');
+const APPEARANCE_KEY = 'innyx-webar:appearance';
+function setAppearance(mode, persist = true) {
+  const appearance = ['dark', 'light', 'slim', 'minimal'].includes(mode) ? mode : 'light';
+  document.body.dataset.appearance = appearance;
+  document.body.classList.toggle('layout-slim', appearance === 'slim');
+  document.body.classList.toggle('layout-minimal', appearance === 'minimal');
+  document.querySelectorAll('[data-appearance-option]').forEach((button) => {
+    const selected = button.dataset.appearanceOption === appearance;
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+  if (persist) { try { localStorage.setItem(APPEARANCE_KEY, appearance); } catch {} }
+}
+window.setInnyxAppearance = setAppearance;
+setAppearance((() => { try { return localStorage.getItem(APPEARANCE_KEY) || 'light'; } catch { return 'light'; } })(), false);
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -37,6 +52,7 @@ function allProjects() {
   });
 }
 function saveRecord(project) {
+  if (window.innyxGithubOwner) project.ownerGithub = window.innyxGithubOwner;
   if (!db) {
     project.storageVolatile = true;
     memoryProjects.set(project.id, project);
@@ -101,7 +117,7 @@ function artFor(project) {
 function render() {
   const query = $('search-input').value.trim().toLocaleLowerCase('pt-BR');
   const ready = projects.filter(isPackageReady).length;
-  const markers = projects.filter((p) => p.markerBlob || p.markerPreviewUrl || p.github?.assets?.markerImagePath).length;
+  const markers = projects.filter((p) => p.mode !== 'location' && (p.markerBlob || p.markerPreviewUrl || p.github?.assets?.markerImagePath)).length;
   $('project-count').textContent = projects.length;
   $('stat-projects').textContent = projects.length;
   $('stat-published').textContent = ready;
@@ -115,25 +131,52 @@ function render() {
   $('storage-track').style.width = `${Math.min(100, Math.max(3, used / (500 * 1024 ** 2) * 100))}%`;
   const filtered = projects.filter((p) => {
     const matchesQuery = `${p.name} ${p.markerName || ''} ${p.modelName || ''}`.toLocaleLowerCase('pt-BR').includes(query);
-    const matchesFilter = activeFilter === 'all' || (activeFilter === 'published' ? isPackageReady(p) : !isPackageReady(p));
-    const matchesView = activeView === 'projects' || (activeView === 'markers' ? !!p.markerBlob || !!p.markerPreviewUrl || !!p.github?.assets?.markerImagePath : activeView === 'assets' ? !!p.modelBlob || !!p.github?.assets?.modelPath || !!p.markerBlob || !!p.markerPreviewUrl : true);
+    const matchesFilter = activeView !== 'projects' || activeFilter === 'all' || (activeFilter === 'published' ? isPackageReady(p) : !isPackageReady(p));
+    const matchesView = activeView === 'projects' || (activeView === 'markers' ? p.mode !== 'location' && !!(p.markerBlob || p.markerPreviewUrl || p.github?.assets?.markerImagePath) : activeView === 'assets' ? !!(p.github?.publishedAt && p.github?.assets?.modelPath) : false);
     return matchesQuery && matchesFilter && matchesView;
   });
   const list = $('project-list');
-  list.innerHTML = filtered.map((p) => `<article class="project-row" data-id="${escapeHtml(p.id)}">
-    <div class="project-main"><div class="project-thumb ${p.tint || 'violet'}">${artFor(p)}</div><div class="project-info"><strong>${escapeHtml(p.name)}</strong><span>${p.updatedAt ? `Editado ${formatDate(p.updatedAt)}` : 'Rascunho novo'}</span></div></div>
-    <div class="marker-cell"><span class="marker-mini ${p.markerBlob ? '' : 'empty'}">${p.mode === 'location' ? '⌖' : p.markerBlob ? '⌗' : '＋'}</span><span class="marker-name">${escapeHtml(p.mode === 'location' ? (p.latitude != null && p.longitude != null ? `${p.latitude}, ${p.longitude}` : 'Definir coordenadas GPS') : (p.markerName || 'Adicionar imagem'))}</span></div>
-    <div class="model-cell"><span class="model-cube">◇</span><span class="model-name">${escapeHtml(p.modelName || 'Adicionar GLB')}</span></div>
-    <div class="status-cell"><span class="status ${isPackageReady(p) ? 'ready' : 'draft'}">${isPackageReady(p) ? 'Pronto' : 'Rascunho'}</span></div>
-    <span class="row-date">${p.updatedAt ? formatDate(p.updatedAt) : '—'}</span><button class="row-more" data-action="menu" aria-label="Opções de ${escapeHtml(p.name)}">···</button>
-  </article>`).join('');
+  list.innerHTML = filtered.map((p) => {
+    if (activeView === 'markers') return `<article class="project-row marker-workspace-row" data-id="${escapeHtml(p.id)}">
+      <div class="marker-workspace-preview">${artFor(p)}</div><div class="project-info"><strong>${escapeHtml(p.markerName || 'Marcador do projeto')}</strong><span>Usado em ${escapeHtml(p.name)} · ${p.github?.publishedAt ? 'publicado no GitHub' : 'rascunho local'}</span></div>
+      <span class="marker-mode-pill"><i></i> Marker Based</span><button class="secondary-button marker-edit-button" data-action="edit-marker">Editar marcador <span>↗</span></button>
+    </article>`;
+    if (activeView === 'assets') {
+      const repo = p.github?.repository || `${window.innyxGithubRepository?.owner || 'VictorSicsu'}/${window.innyxGithubRepository?.repo || 'innyx-webar'}`;
+      const path = p.github?.assets?.modelPath || '';
+      const url = p.github?.assets?.modelUrl || `https://raw.githubusercontent.com/${repo}/${window.innyxGithubRepository?.branch || 'main'}/${path.split('/').map(encodeURIComponent).join('/')}`;
+      return `<article class="project-row asset-workspace-row" data-id="${escapeHtml(p.id)}"><div class="asset-3d-icon">◇</div><div class="project-info"><strong>${escapeHtml(p.modelName || 'Modelo GLB')}</strong><span>${escapeHtml(p.name)} · publicado no GitHub</span></div><span class="asset-type-pill">GLB</span><a class="secondary-button asset-open-button" href="${escapeHtml(url)}" target="_blank" rel="noopener">Abrir arquivo ↗</a></article>`;
+    }
+    return `<article class="project-row" data-id="${escapeHtml(p.id)}">
+      <div class="project-main"><div class="project-thumb ${p.tint || 'violet'}">${artFor(p)}</div><div class="project-info"><strong>${escapeHtml(p.name)}</strong><span>${p.updatedAt ? `Editado ${formatDate(p.updatedAt)}` : 'Rascunho novo'}</span><div class="cloud-actions">${p.github?.publishedAt && p.github?.shareUrl ? `<a class="publish-link" href="${escapeHtml(p.github.shareUrl)}" target="_blank" rel="noopener">Abrir experiência ↗</a><button data-cloud-action="copy" data-id="${escapeHtml(p.id)}" type="button">Copiar link</button>` : isPackageReady(p) ? `<button class="publish-link" data-cloud-action="publish" data-id="${escapeHtml(p.id)}" type="button">${p.github?.publishedAt ? 'Atualizar publicação' : 'Publicar no GitHub'} ↗</button>` : ''}</div></div></div>
+      <div class="marker-cell"><span class="marker-mini ${p.markerBlob ? '' : 'empty'}">${p.mode === 'location' ? '⌖' : p.markerBlob ? '⌗' : '＋'}</span><span class="marker-name">${escapeHtml(p.mode === 'location' ? (p.latitude != null && p.longitude != null ? `${p.latitude}, ${p.longitude}` : 'Definir coordenadas GPS') : (p.markerName || 'Adicionar imagem'))}</span></div>
+      <div class="model-cell"><span class="model-cube">◇</span><span class="model-name">${escapeHtml(p.modelName || 'Adicionar GLB')}</span></div>
+      <div class="status-cell"><span class="status ${isPackageReady(p) ? 'ready' : 'draft'}">${isPackageReady(p) ? 'Pronto' : 'Rascunho'}</span></div>
+      <span class="row-date">${p.updatedAt ? formatDate(p.updatedAt) : '—'}</span><button class="row-more" data-action="menu" aria-label="Opções de ${escapeHtml(p.name)}">···</button>
+    </article>`;
+  }).join('');
+  $('projects-section').classList.toggle('markers-view', activeView === 'markers');
+  $('projects-section').classList.toggle('assets-view', activeView === 'assets');
+  $('filter-chips').classList.toggle('hidden', activeView !== 'projects');
+  document.querySelector('.table-head').classList.toggle('hidden', activeView !== 'projects');
+  $('list-title').textContent = activeView === 'markers' ? 'Marcadores em uso' : activeView === 'assets' ? 'Modelos publicados' : 'Seus projetos';
+  $('list-description').textContent = activeView === 'markers' ? 'Edite a imagem usada no rastreamento de cada experiência.' : activeView === 'assets' ? 'Somente modelos 3D hospedados no repositório GitHub conectado.' : 'Publique no GitHub e compartilhe um link WebAR que abre no celular.';
   $('empty-state').classList.toggle('hidden', filtered.length > 0);
-  $('empty-state').querySelector('strong').textContent = projects.length ? 'Nenhum resultado encontrado' : 'Nenhum projeto por aqui';
-  $('empty-state').querySelector('span').textContent = projects.length ? 'Tente outra busca ou altere os filtros.' : 'Crie sua primeira experiência e dê vida a uma imagem.';
+  $('empty-state').querySelector('strong').textContent = query ? 'Nenhum resultado encontrado' : activeView === 'markers' ? 'Nenhum marcador em uso' : activeView === 'assets' ? 'Nenhum modelo publicado' : projects.length ? 'Nenhum resultado encontrado' : 'Nenhum projeto por aqui';
+  $('empty-state').querySelector('span').textContent = query ? 'Tente outra busca.' : activeView === 'markers' ? 'Adicione uma imagem a uma experiência Marker Based para vê-la aqui.' : activeView === 'assets' ? 'Publique uma experiência no GitHub para listar o arquivo GLB.' : projects.length ? 'Tente outra busca ou altere os filtros.' : 'Crie sua primeira experiência e dê vida a uma imagem.';
+  $('list-summary').textContent = `${filtered.length} ${activeView === 'markers' ? (filtered.length === 1 ? 'marcador' : 'marcadores') : activeView === 'assets' ? (filtered.length === 1 ? 'modelo publicado' : 'modelos publicados') : (filtered.length === 1 ? 'projeto' : 'projetos')}`;
 }
-async function refresh() { projects = (await allProjects()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); render(); }
+async function refresh() {
+  const owner = String(window.innyxGithubOwner || 'VictorSicsu').toLowerCase();
+  projects = (await allProjects()).filter((project) => {
+    const repositoryOwner = String(project.github?.repository || '').split('/')[0];
+    return String(repositoryOwner || project.ownerGithub || 'VictorSicsu').toLowerCase() === owner;
+  }).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  render();
+}
 window.findInnyxProject = (id) => projects.find((project) => project.id === id) || memoryProjects.get(id) || null;
 window.rememberInnyxProject = (project) => {
+  if (window.innyxGithubOwner) project.ownerGithub = window.innyxGithubOwner;
   memoryProjects.set(project.id, project);
   const index = projects.findIndex((item) => item.id === project.id);
   if (index < 0) projects.unshift(project); else projects[index] = project;
@@ -308,6 +351,7 @@ document.getElementById('project-form').addEventListener('submit', async (event)
   }
 });
 $('project-list').addEventListener('click', async (event) => {
+  if (event.target.closest('a')) return;
   const row = event.target.closest('.project-row'); if (!row) return;
   const item = projects.find((p) => p.id === row.dataset.id); if (!item) return;
   if (event.target.closest('[data-action="menu"]')) {
@@ -319,7 +363,7 @@ $('project-list').addEventListener('click', async (event) => {
   }
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) { openEditor(item); return; }
-  if (action === 'edit') openEditor(item);
+  if (action === 'edit' || action === 'edit-marker') openEditor(item);
   if (action === 'download') await exportExperience(item);
   if (action === 'delete' && confirm(`Excluir “${item.name}” e seus arquivos deste navegador?`)) { URL.revokeObjectURL(thumbUrls.get(item.id) || ''); thumbUrls.delete(item.id); await deleteRecord(item.id); await refresh(); notify('Projeto excluído.'); }
 });
@@ -341,9 +385,18 @@ document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('clic
 }));
 document.querySelectorAll('.nav-item').forEach((button) => button.addEventListener('click', () => {
   activeView = button.dataset.view; document.querySelectorAll('.nav-item').forEach((el) => el.classList.toggle('active', el === button));
-  const titles = { projects: ['Experiências','Crie, organize e publique suas experiências de realidade aumentada.'], markers: ['Marcadores','Organize as imagens associadas aos seus projetos.'], assets: ['Biblioteca de assets','Encontre modelos GLB e imagens adicionados aos projetos.'], settings: ['Configurações','Seus dados ficam armazenados localmente neste navegador.'] };
-  $('breadcrumb-current').textContent = titles[activeView][0]; $('page-title').textContent = titles[activeView][0]; $('page-description').textContent = titles[activeView][1]; render();
+  const titles = { projects: ['Experiências','Crie, organize e publique suas experiências de realidade aumentada.'], markers: ['Marcadores','Imagens de rastreamento usadas em suas experiências.'], assets: ['Biblioteca de assets','Modelos 3D publicados no repositório GitHub conectado.'], appearance: ['Aparência','Personalize o visual do seu workspace.'] };
+  const isAppearance = activeView === 'appearance';
+  $('breadcrumb-current').textContent = titles[activeView][0]; $('page-title').textContent = titles[activeView][0]; $('page-description').textContent = titles[activeView][1];
+  $('projects-section').classList.toggle('hidden', isAppearance);
+  $('appearance-panel').classList.toggle('hidden', !isAppearance);
+  document.querySelector('.hero-banner').classList.toggle('hidden', isAppearance || activeView !== 'projects');
+  document.querySelector('.stats-row').classList.toggle('hidden', isAppearance || activeView !== 'projects');
+  $('create-button').classList.toggle('hidden', isAppearance || activeView !== 'projects');
+  document.querySelector('.eyebrow').innerHTML = `<span class="eyebrow-line"></span>${isAppearance ? 'PREFERÊNCIAS' : 'ESTÚDIO WEB AR'}`;
+  render();
 }));
+document.querySelectorAll('[data-appearance-option]').forEach((button) => button.addEventListener('click', () => setAppearance(button.dataset.appearanceOption)));
 $('filter-button').addEventListener('click', () => { activeFilter = activeFilter === 'all' ? 'draft' : activeFilter === 'draft' ? 'published' : 'all'; document.querySelectorAll('.chip').forEach((el) => el.classList.toggle('active', el.dataset.filter === activeFilter)); render(); });
 $('help-button').addEventListener('click', () => $('help-dialog').showModal()); $('close-help').addEventListener('click', () => $('help-dialog').close());
 
@@ -382,5 +435,4 @@ $('import-input').addEventListener('change', async (event) => {
     notify('Armazenamento local indisponível. “Salvar e publicar” guarda o projeto no GitHub; rascunhos ficam nesta aba.');
   }
 })();
-
 

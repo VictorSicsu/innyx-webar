@@ -1,12 +1,14 @@
 (() => {
-  const OWNER = 'VictorSicsu';
-  const REPO = 'innyx-webar';
-  const BRANCH = 'main';
-  const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
-  const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
+  let OWNER = 'VictorSicsu';
+  let REPO = 'innyx-webar';
+  let BRANCH = 'main';
+  const API = () => `https://api.github.com/repos/${OWNER}/${REPO}`;
+  const RAW = () => `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
   const $ = (id) => document.getElementById(id);
   const githubDialog = $('github-dialog');
   let token = '';
+  let tokenExpiresAt = 0;
+  let authenticated = false;
   let connectedUser = '';
   let pendingPublishId = '';
   let pendingPublishProject = null;
@@ -161,6 +163,7 @@
   }
 
   async function saveProject(project) {
+    if (connectedUser) project.ownerGithub = connectedUser;
     try {
       if (!window.indexedDB) throw new Error('IndexedDB indisponível');
       const db = await openCloudDb();
@@ -173,26 +176,39 @@
     window.rememberInnyxProject?.(project);
   }
 
-  async function api(path, options = {}) {
-    if (!token) throw new Error('Conecte o GitHub para publicar projetos.');
-    const url = path.startsWith('https://api.github.com/') ? path : `${API}${path}`;
+  async function ensureGithubToken(force = false) {
+    if (!authenticated) throw new Error('Entre com o GitHub para publicar projetos.');
+    if (!force && token && tokenExpiresAt > Date.now() + 60000) return token;
+    const response = await fetch('/api/auth/token', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+    const body = await response.json().catch(() => ({}));
+    if (response.status === 401) { authenticated = false; token = ''; tokenExpiresAt = 0; location.replace('/'); throw new Error('Sua sessão expirou. Entre com o GitHub novamente.'); }
+    if (!response.ok || !body.token) throw new Error(body.error || 'Não foi possível obter uma autorização temporária do GitHub.');
+    token = body.token;
+    tokenExpiresAt = Date.parse(body.expiresAt || '') || Date.now() + 50 * 60 * 1000;
+    return token;
+  }
+
+  async function api(path, options = {}, retry = true) {
+    const currentToken = await ensureGithubToken();
+    const url = path.startsWith('https://api.github.com/') ? path : `${API()}${path}`;
     const response = await fetch(url, {
       ...options,
       headers: {
         Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${currentToken}`,
         'X-GitHub-Api-Version': '2022-11-28',
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         ...(options.headers || {})
       }
     });
+    if (response.status === 401 && retry) { await ensureGithubToken(true); return api(path, options, false); }
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = body.message || response.statusText;
       let message = `${detail} (GitHub ${response.status})`;
-      if (response.status === 401) message = 'Token inválido ou expirado. Gere outro token fine-grained e tente novamente.';
-      if (response.status === 403) message = 'O GitHub recusou o acesso. Confira se o token inclui VictorSicsu/innyx-webar e Contents: Read and write; em contas com SSO, autorize também o token.';
-      if (response.status === 404) message = 'Repositório não encontrado ou token sem acesso a VictorSicsu/innyx-webar.';
+      if (response.status === 401) message = 'A sessão do GitHub expirou. Entre novamente para continuar.';
+      if (response.status === 403) message = 'O GitHub recusou a operação. Confirme se o App está instalado no repositório conectado com permissão Contents: Read and write.';
+      if (response.status === 404) message = `Repositório ${OWNER}/${REPO} não encontrado ou não instalado no GitHub App.`;
       const error = new Error(message);
       error.status = response.status;
       throw error;
@@ -203,9 +219,9 @@
   function setConnection(user) {
     connectedUser = user || connectedUser || 'GitHub';
     const button = $('github-connect');
-    button.textContent = token ? `GitHub · ${connectedUser}` : 'Conectar GitHub';
-    button.classList.toggle('connected', !!token);
-    $('disconnect-github').classList.toggle('hidden', !token);
+    button.textContent = authenticated ? `GitHub · ${connectedUser}` : 'Conectar GitHub';
+    button.classList.toggle('connected', authenticated);
+    $('disconnect-github').classList.toggle('hidden', !authenticated);
   }
 
   function toBase64(file, onProgress = () => {}) {
@@ -232,7 +248,7 @@
     return btoa(binary);
   }
 
-  function rawUrl(path) { return `${RAW}/${path.split('/').map(encodeURIComponent).join('/')}`; }
+  function rawUrl(path) { return `${RAW()}/${path.split('/').map(encodeURIComponent).join('/')}`; }
   function extension(name) { return String(name || '').split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
   async function syncFromGitHub() {
@@ -254,6 +270,7 @@
       const project = {
         id: String(manifest.id),
         name: manifest.name || entry.name.replace(/\.json$/i, ''),
+        ownerGithub: OWNER,
         mode: manifest.mode === 'location' ? 'location' : 'marker',
         createdAt: manifest.createdAt || Date.now(),
         updatedAt: manifest.updatedAt || Date.now(),
@@ -268,9 +285,10 @@
         github: {
           publishedAt: manifest.updatedAt || Date.now(),
           manifestPath: entry.path,
-          shareUrl: manifest.shareUrl || `${location.origin}/experience.html?id=${encodeURIComponent(manifest.id)}`,
+          shareUrl: manifest.shareUrl || `${location.origin}/experience.html?id=${encodeURIComponent(manifest.id)}&owner=${encodeURIComponent(OWNER)}&repo=${encodeURIComponent(REPO)}`,
+          repository: `${OWNER}/${REPO}`,
           deploymentState: 'ready',
-          assets: { ...assets, files: assets.files || [] }
+          assets: { ...assets, modelUrl: assets.modelPath ? rawUrl(assets.modelPath) : '', files: assets.files || [] }
         }
       };
       const local = await getProject(project.id);
@@ -394,26 +412,26 @@
     return { files, assets, paths: [...paths] };
   }
 
-  function uploadBlobWithProgress(payload, onProgress) {
-    return new Promise((resolve, reject) => {
-      if (!token) return reject(new Error('Conecte o GitHub para publicar projetos.'));
+  async function uploadBlobWithProgress(payload, onProgress) {
+    const send = (currentToken, retry) => new Promise((resolve, reject) => {
       const request = new XMLHttpRequest();
-      request.open('POST', API + '/git/blobs');
+      request.open('POST', API() + '/git/blobs');
       request.setRequestHeader('Accept', 'application/vnd.github+json');
-      request.setRequestHeader('Authorization', 'Bearer ' + token);
+      request.setRequestHeader('Authorization', 'Bearer ' + currentToken);
       request.setRequestHeader('X-GitHub-Api-Version', '2022-11-28');
       request.setRequestHeader('Content-Type', 'application/json');
-      request.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable) onProgress(event.loaded / event.total);
-      });
-      request.addEventListener('load', () => {
+      request.upload.addEventListener('progress', (event) => { if (event.lengthComputable) onProgress(event.loaded / event.total); });
+      request.addEventListener('load', async () => {
         let body = {};
         try { body = JSON.parse(request.responseText || '{}'); } catch {}
+        if (request.status === 401 && retry) {
+          try { return resolve(await send(await ensureGithubToken(true), false)); } catch (error) { return reject(error); }
+        }
         if (request.status < 200 || request.status >= 300) {
           const detail = body.message || request.statusText;
-          if (request.status === 401) return reject(new Error('Token inválido ou expirado. Conecte um token fine-grained com permissão Contents: Read and write.'));
-          if (request.status === 403) return reject(new Error('O token não tem permissão para gravar neste repositório. Revise Contents: Read and write.'));
-          if (request.status === 404) return reject(new Error('Repositório não encontrado ou token sem acesso a VictorSicsu/innyx-webar.'));
+          if (request.status === 401) return reject(new Error('A sessão GitHub expirou. Entre novamente e tente publicar.'));
+          if (request.status === 403) return reject(new Error('O GitHub App não tem permissão Contents: Read and write neste repositório.'));
+          if (request.status === 404) return reject(new Error(`Repositório ${OWNER}/${REPO} não encontrado ou não instalado no GitHub App.`));
           return reject(new Error(detail + ' (GitHub ' + request.status + ')'));
         }
         onProgress(1);
@@ -423,10 +441,11 @@
       request.addEventListener('abort', () => reject(new Error('O envio do arquivo para o GitHub foi interrompido.')));
       request.send(payload);
     });
+    return send(await ensureGithubToken(), true);
   }
 
   async function readVercelCommitStatus(commitSha) {
-    const response = await fetch(API + '/commits/' + encodeURIComponent(commitSha) + '/status', {
+    const response = await fetch(API() + '/commits/' + encodeURIComponent(commitSha) + '/status', {
       headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
       cache: 'no-store'
     });
@@ -561,13 +580,8 @@
   }
 
   async function publishProject(project) {
-    if (!token) {
-      pendingPublishId = project.id;
-      pendingPublishProject = project;
-      githubDialog.showModal();
-      $('github-token').focus();
-      return false;
-    }
+    if (!authenticated) throw new Error('Entre com o GitHub para publicar projetos.');
+    await ensureGithubToken();
     project.updatedAt = Date.now();
     const mode = project.mode || 'marker';
     if (!project.modelBlob && !project.github?.assets?.modelPath) throw new Error('Adicione um arquivo GLB antes de publicar.');
@@ -586,7 +600,7 @@
 
     const { files, assets, paths } = projectFiles(project);
     const manifestPath = 'experiences/' + project.id + '.json';
-    const shareUrl = location.origin + '/experience.html?id=' + encodeURIComponent(project.id);
+    const shareUrl = location.origin + '/experience.html?id=' + encodeURIComponent(project.id) + '&owner=' + encodeURIComponent(OWNER) + '&repo=' + encodeURIComponent(REPO);
     const manifest = buildManifest(project, assets, shareUrl, paths);
     const oldPaths = [...(project.github?.assets?.files || [])].filter((path) => !paths.includes(path));
     if (project.github?.manifestPath) oldPaths.push(project.github.manifestPath);
@@ -594,7 +608,7 @@
     beginPublishProgress(project.name);
     const commitSha = await commitTree(files, oldPaths, 'Publish WebAR: ' + project.name);
     await waitForVercel(commitSha);
-    project.github = { publishedAt: project.updatedAt, manifestPath, shareUrl, commitSha, deploymentState: 'ready', assets: { ...assets, files: paths } };
+    project.github = { publishedAt: project.updatedAt, manifestPath, shareUrl, commitSha, repository: `${OWNER}/${REPO}`, deploymentState: 'ready', assets: { ...assets, modelUrl: assets.modelPath ? rawUrl(assets.modelPath) : '', files: paths } };
     project.markerPreviewUrl = assets.markerImagePath ? rawUrl(assets.markerImagePath) : '';
     project.markerChanged = false;
     project.modelChanged = false;
@@ -640,18 +654,6 @@
       activePublishId = '';
     }
   };
-  window.render = function () {
-    originalRender();
-    openCloudDb().then(async (db) => {
-      const items = await new Promise((resolve, reject) => {
-        const req = db.transaction('projects').objectStore('projects').getAll();
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-      decorateRows(items);
-    }).catch(() => {});
-  };
-
   $('project-list').addEventListener('click', async (event) => {
     const button = event.target.closest('[data-cloud-action]');
     if (!button) return;
@@ -674,50 +676,28 @@
     }
   }, true);
 
+  $('github-login-button').addEventListener('click', () => { if (!$('github-login-button').disabled) location.assign('/api/auth/github'); });
+
   $('github-connect').addEventListener('click', async () => {
-    if (!token) { githubDialog.showModal(); $('github-token').focus(); return; }
+    if (!authenticated) { location.assign('/api/auth/github'); return; }
     try { await syncFromGitHub(); }
     catch (error) { say(error.message || 'Falha ao sincronizar com o GitHub.'); }
   });
-
-  $('github-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const button = $('connect-github-submit');
-    button.disabled = true;
-    $('github-error').textContent = '';
-    try {
-      token = $('github-token').value.trim();
-      if (!token) throw new Error('Cole seu token fine-grained do GitHub.');
-      await api('');
-      await syncFromGitHub();
-      const waiting = pendingPublishId;
-      const waitingProject = pendingPublishProject;
-      pendingPublishId = '';
-      pendingPublishProject = null;
-      $('github-token').value = '';
-      setConnection(OWNER);
-      githubDialog.close();
-      if (waiting) await window.publishProjectById(waiting, waitingProject);
-    } catch (error) {
-      token = '';
-      setConnection('');
-      $('github-error').textContent = error.message || 'Não foi possível conectar ao GitHub.';
-    } finally {
-      button.disabled = false;
-    }
-  });
+  $('profile-menu').addEventListener('click', () => { if (authenticated) githubDialog.showModal(); });
 
   $('close-github').addEventListener('click', () => githubDialog.close());
   $('cancel-github').addEventListener('click', () => githubDialog.close());
-  $('disconnect-github').addEventListener('click', () => {
+  $('disconnect-github').addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) }).catch(() => {});
     token = '';
+    tokenExpiresAt = 0;
+    authenticated = false;
     connectedUser = '';
     pendingPublishId = '';
     pendingPublishProject = null;
-    $('github-token').value = '';
     setConnection('');
     githubDialog.close();
-    say('GitHub desconectado desta aba.');
+    location.assign('/');
   });
 
   $('project-form').addEventListener('change', (event) => {
@@ -746,6 +726,60 @@
     if (!help.open) help.showModal();
   });
 
-  setConnection('');
-})();
+  async function initializeAuth() {
+    const gate = $('auth-gate');
+    const shell = $('app-shell');
+    const button = $('github-login-button');
+    const status = $('auth-status');
+    setConnection('');
+    const authState = new URLSearchParams(location.search).get('auth');
+    const messages = {
+      'setup-required': ['O login GitHub ainda precisa ser configurado no projeto Vercel. Os nomes e caminhos das variáveis estão na documentação de instalação do repositório.', 'error'],
+      'repo-required': ['Instale o GitHub App em um repositório público chamado “innyx-webar” da mesma conta usada no login.', 'error'],
+      'public-repo-required': ['O repositório conectado precisa ser público para que o link WebAR abra em outros celulares.', 'error'],
+      'invalid-state': ['A autorização expirou ou foi iniciada em outra sessão. Tente entrar novamente.', 'error'],
+      'install-state-error': ['A instalação do GitHub não foi confirmada. Inicie o login novamente.', 'error'],
+      'install-error': ['Não foi possível validar a instalação. Confirme o App e tente novamente.', 'error'],
+      'oauth-error': ['O GitHub não concluiu a autorização. Tente entrar novamente.', 'error'],
+      cancelled: ['A autorização foi cancelada. Você pode tentar novamente quando quiser.', ''],
+      connected: ['Conta conectada. Abrindo seu workspace…', 'success']
+    };
+    if (messages[authState]) { status.textContent = messages[authState][0]; status.dataset.state = messages[authState][1]; }
+    try {
+      const response = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' });
+      const session = await response.json();
+      if (!session.configured) {
+        button.disabled = true;
+        status.textContent = 'O login GitHub está preparado, mas as variáveis seguras do GitHub App ainda não foram adicionadas ao projeto Vercel. Consulte GITHUB_APP_SETUP.md no repositório.';
+        status.dataset.state = 'error';
+        return;
+      }
+      button.disabled = false;
+      if (!session.authenticated) return;
+      authenticated = true;
+      connectedUser = session.user?.login || 'GitHub';
+      window.innyxGithubOwner = connectedUser;
+      OWNER = session.repository.owner;
+      REPO = session.repository.name;
+      BRANCH = session.repository.branch || 'main';
+      window.innyxGithubRepository = { owner: OWNER, repo: REPO, branch: BRANCH };
+      const avatar = session.user?.avatarUrl;
+      if (avatar) { $('user-avatar-image').src = avatar; $('user-avatar-image').hidden = false; $('top-avatar-image').src = avatar; $('top-avatar-image').hidden = false; }
+      $('profile-name').textContent = connectedUser;
+      $('workspace-name').textContent = `${connectedUser} · Innyx Studio`;
+      $('github-session-label').textContent = `Conectado como ${connectedUser} · ${OWNER}/${REPO}`;
+      gate.hidden = true;
+      shell.hidden = false;
+      setConnection(connectedUser);
+      if (authState === 'connected') history.replaceState({}, '', location.pathname);
+      await window.refresh?.();
+      await syncFromGitHub().catch((error) => say(error.message || 'GitHub conectado, mas a sincronização falhou.'));
+    } catch {
+      button.disabled = true;
+      status.textContent = 'Não foi possível confirmar a sessão segura. Atualize a página ou tente novamente mais tarde.';
+      status.dataset.state = 'error';
+    }
+  }
 
+  initializeAuth();
+})();
