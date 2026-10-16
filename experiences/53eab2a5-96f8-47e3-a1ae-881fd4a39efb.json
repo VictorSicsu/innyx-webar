@@ -1,0 +1,53 @@
+{
+  "format": "innyx-webar-experience",
+  "version": 1,
+  "id": "53eab2a5-96f8-47e3-a1ae-881fd4a39efb",
+  "name": "Innyx_Rocket",
+  "mode": "marker",
+  "createdAt": 1792182043193,
+  "updatedAt": 1792182043237,
+  "shareUrl": "https://innyx-webar.vercel.app/experience.html?id=53eab2a5-96f8-47e3-a1ae-881fd4a39efb&owner=VictorSicsu&repo=innyx-webar",
+  "model": {
+    "name": "INNYX_logo_3D_rocket.glb",
+    "path": "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/model.glb",
+    "url": "https://raw.githubusercontent.com/VictorSicsu/innyx-webar/main/assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/model.glb",
+    "animation": "",
+    "scale": 2
+  },
+  "marker": {
+    "name": "INNYX_marker.png",
+    "imagePath": "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.png",
+    "imageUrl": "https://raw.githubusercontent.com/VictorSicsu/innyx-webar/main/assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.png",
+    "descriptorBasePath": "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker",
+    "descriptorBaseUrl": "https://raw.githubusercontent.com/VictorSicsu/innyx-webar/main/assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker",
+    "descriptorPaths": [
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.fset",
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.fset3",
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.iset"
+    ],
+    "descriptorUrls": [
+      "https://raw.githubusercontent.com/VictorSicsu/innyx-webar/main/assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.fset",
+      "https://raw.githubusercontent.com/VictorSicsu/innyx-webar/main/assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.fset3",
+      "https://raw.githubusercontent.com/VictorSicsu/innyx-webar/main/assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.iset"
+    ]
+  },
+  "location": null,
+  "assets": {
+    "modelPath": "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/model.glb",
+    "markerImagePath": "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.png",
+    "descriptorPaths": [
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.fset",
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.fset3",
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.iset"
+    ],
+    "modelName": "INNYX_logo_3D_rocket.glb",
+    "markerName": "INNYX_marker.png",
+    "files": [
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/model.glb",
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.png",
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.fset",
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.fset3",
+      "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/marker.iset"
+    ]
+  }
+}
