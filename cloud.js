@@ -162,15 +162,14 @@
 
   async function saveProject(project) {
     try {
+      if (!window.indexedDB) throw new Error('IndexedDB indisponível');
       const db = await openCloudDb();
       await new Promise((resolve, reject) => {
         const req = db.transaction('projects', 'readwrite').objectStore('projects').put(project);
         req.onsuccess = resolve;
         req.onerror = () => reject(req.error);
       });
-    } catch (error) {
-      if (!['InvalidStateError', 'SecurityError', 'QuotaExceededError'].includes(error?.name)) throw error;
-    }
+    } catch {}
     window.rememberInnyxProject?.(project);
   }
 
@@ -344,7 +343,9 @@
       hydrateProject(project).then(() => { $('save-hint').textContent = 'Arquivos sincronizados do GitHub'; })
         .catch((error) => { $('save-hint').textContent = 'Falha ao carregar arquivos'; $('dialog-error').textContent = error.message; });
     } else {
-      $('save-hint').textContent = project?.github?.publishedAt ? 'Publicado e sincronizado com o GitHub' : 'Rascunho salvo neste navegador';
+      $('save-hint').textContent = project?.github?.publishedAt
+        ? 'Publicado e sincronizado com o GitHub'
+        : project?.storageVolatile ? 'Rascunho nesta aba · publique para guardar no GitHub' : 'Rascunho salvo neste navegador';
     }
   };
 
@@ -598,6 +599,7 @@
     project.markerChanged = false;
     project.modelChanged = false;
     project.descriptorsChanged = false;
+    project.storageVolatile = false;
     await saveProject(project);
     if (typeof window.refresh === 'function') await window.refresh();
     finishPublishProgress(shareUrl);

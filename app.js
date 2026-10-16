@@ -37,20 +37,36 @@ function allProjects() {
   });
 }
 function saveRecord(project) {
-  memoryProjects.set(project.id, project);
-  if (!db) return Promise.resolve({ volatile: true });
+  if (!db) {
+    project.storageVolatile = true;
+    memoryProjects.set(project.id, project);
+    return Promise.resolve({ volatile: true });
+  }
+  project.storageVolatile = false;
   return new Promise((resolve, reject) => {
     let transaction;
     try { transaction = db.transaction(STORE, 'readwrite'); }
     catch (error) {
-      if (['InvalidStateError', 'SecurityError', 'QuotaExceededError'].includes(error.name)) return resolve({ volatile: true });
+      if (['InvalidStateError', 'SecurityError', 'QuotaExceededError'].includes(error.name)) {
+        project.storageVolatile = true;
+        memoryProjects.set(project.id, project);
+        return resolve({ volatile: true });
+      }
       return reject(error);
     }
     const request = transaction.objectStore(STORE).put(project);
-    request.onsuccess = () => resolve({ volatile: false });
+    request.onsuccess = () => {
+      project.storageVolatile = false;
+      memoryProjects.set(project.id, project);
+      resolve({ volatile: false });
+    };
     request.onerror = () => {
       const error = request.error || transaction.error;
-      if (['InvalidStateError', 'SecurityError', 'QuotaExceededError'].includes(error?.name)) resolve({ volatile: true });
+      if (['InvalidStateError', 'SecurityError', 'QuotaExceededError'].includes(error?.name)) {
+        project.storageVolatile = true;
+        memoryProjects.set(project.id, project);
+        resolve({ volatile: true });
+      }
       else reject(error || new Error('Falha ao gravar no armazenamento do navegador.'));
     };
   });
