@@ -16,5 +16,5 @@ O rastreamento NFT dispensa o quadro preto do Hiro, mas precisa dos descritores 
 
 Esta versão salva projetos e arquivos no IndexedDB do navegador e permite backups JSON. Assim, a interface pode ser aberta em diferentes dispositivos, mas o conteúdo salvo em um dispositivo não é sincronizado automaticamente com os outros.
 
-Para gestão centralizada entre dispositivos, o projeto precisa ser conectado a armazenamento remoto e autenticação de administrador (por exemplo, Vercel Blob com rotas protegidas). A conta Vercel conectada nesta sessão recusou acesso ao escopo do projeto `web-ar-test`, e a conexão GitHub disponível só expõe o repositório da logo. Portanto, esta pasta ainda não foi publicada nem conectada a storage remoto.
+O repositório GitHub guarda o código do portal. Com o repositório conectado à Vercel, alterações de código enviadas para `main` geram um novo deploy automaticamente. Os projetos e uploads feitos dentro do portal continuam locais a cada navegador; sincronizá-los entre dispositivos exige armazenamento remoto e autenticação de administrador, que não fazem parte desta versão.
 
