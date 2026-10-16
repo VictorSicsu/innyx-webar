@@ -5,6 +5,7 @@ let projects = [];
 let activeFilter = 'all';
 let activeView = 'projects';
 let markerUpload = null;
+let markerPreviewObjectUrl = null;
 let modelUpload = null;
 let descriptorUpload = null;
 let descriptorGenerationPromise = null;
@@ -280,6 +281,23 @@ window.rememberInnyxProject = (project) => {
   render();
   return project;
 };
+function setMarkerPreview(fileOrUrl, name = '') {
+  if (markerPreviewObjectUrl) { URL.revokeObjectURL(markerPreviewObjectUrl); markerPreviewObjectUrl = null; }
+  let src = fileOrUrl;
+  if (fileOrUrl instanceof Blob) { markerPreviewObjectUrl = URL.createObjectURL(fileOrUrl); src = markerPreviewObjectUrl; }
+  const image = $('marker-preview');
+  image.src = src || '';
+  image.alt = name ? 'Prévia do marcador ' + name : 'Prévia do marcador';
+  image.hidden = !src;
+  $('marker-preview-placeholder').hidden = !!src;
+  if (src) $('model-editor').classList.remove('hidden');
+}
+function clearMarkerPreview() {
+  if (markerPreviewObjectUrl) { URL.revokeObjectURL(markerPreviewObjectUrl); markerPreviewObjectUrl = null; }
+  $('marker-preview').removeAttribute('src');
+  $('marker-preview').hidden = true;
+  $('marker-preview-placeholder').hidden = false;
+}
 function clearDialog() {
   $('project-form').reset(); $('project-id').value = ''; $('dialog-error').textContent = '';
   $('marker-file-name').textContent = 'Nenhum arquivo selecionado'; $('model-file-name').textContent = 'Nenhum arquivo selecionado';
@@ -287,7 +305,7 @@ function clearDialog() {
   $('mode-marker').checked = true; $('mode-location').checked = false; $('latitude').value = ''; $('longitude').value = ''; $('altitude').value = '';
   $('location-fields').classList.add('hidden'); document.querySelectorAll('.marker-only').forEach((el) => el.classList.remove('hidden'));
   window.__cloudMarkerEdited = false; window.__cloudModelEdited = false; window.__cloudDescriptorsEdited = false;
-  markerUpload = null; modelUpload = null;
+  markerUpload = null; modelUpload = null; clearMarkerPreview();
   descriptorUpload = null; descriptorGenerationId++; descriptorGenerationPromise = null;
   $('descriptor-files').value = ''; setDescriptorStatus('Os arquivos de rastreamento serão preparados automaticamente ao selecionar a imagem.');
   $('download-package').classList.add('hidden');
@@ -304,6 +322,13 @@ function openEditor(project) {
     $('location-fields').classList.toggle('hidden', project.mode !== 'location'); document.querySelectorAll('.marker-only').forEach((el) => el.classList.toggle('hidden', project.mode === 'location'));
     $('dialog-title').textContent = 'Editar experiência'; $('delete-project').classList.remove('hidden');
     $('marker-file-name').textContent = project.markerName || (project.github?.assets?.markerImagePath ? 'Imagem publicada no GitHub' : 'Nenhum arquivo selecionado');
+    if (project.markerBlob) setMarkerPreview(project.markerBlob, project.markerName);
+    else if (project.markerPreviewUrl) setMarkerPreview(project.markerPreviewUrl, project.markerName);
+    else if (project.github?.assets?.markerImagePath) {
+      const repository = project.github.repository || `${window.innyxGithubOwner || 'VictorSicsu'}/${window.innyxGithubRepository || 'innyx-webar'}`;
+      const markerUrl = `https://raw.githubusercontent.com/${repository}/main/${project.github.assets.markerImagePath.split('/').map(encodeURIComponent).join('/')}`;
+      setMarkerPreview(markerUrl, project.markerName);
+    }
     $('model-file-name').textContent = project.modelName || (project.github?.assets?.modelPath ? 'Modelo publicado no GitHub' : 'Nenhum arquivo selecionado');
     if (project.descriptorFiles?.length) $('descriptor-file-name').textContent = project.descriptorFiles.map((f) => f.name).join(' · ');
     if (project.mode !== 'location' && project.markerBlob) {
@@ -390,7 +415,7 @@ $('marker-file').addEventListener('change', (event) => {
   if (!window.__cloudHydrating) { window.__cloudMarkerEdited = true; window.__cloudDescriptorsEdited = true; }
   $('descriptor-files').value = '';
   $('download-package').classList.add('hidden');
-  $('marker-file-name').textContent = file.name; $('dialog-error').textContent = '';
+  $('marker-file-name').textContent = file.name; setMarkerPreview(file, file.name); $('dialog-error').textContent = '';
   prepareMarkerDescriptors(file);
 });
 $('model-file').addEventListener('change', (event) => {
