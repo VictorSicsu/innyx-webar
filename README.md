@@ -25,7 +25,7 @@ O repositório é público. GLBs, imagens, descritores e manifestos publicados f
 
 ### Marker Based
 
-A câmera detecta uma imagem natural sem a borda preta do Hiro. Envie uma imagem com detalhes variados e gere os três descritores NFT `.fset`, `.fset3` e `.iset` no [gerador oficial do AR.js](https://ar-js-org.github.io/AR.js/three.js/examples/marker-training/examples/generator.html). Carregue os três arquivos no projeto junto com o GLB.
+A câmera detecta uma imagem natural sem a borda preta do Hiro. Para esse rastreamento, gere os descritores AR.js `.fset`, `.fset3` e `.iset` no [gerador oficial do AR.js](https://ar-js-org.github.io/AR.js/three.js/examples/marker-training/examples/generator.html) e carregue os três arquivos junto com o GLB. “NFT” aqui significa *Natural Feature Tracking* (rastreamento de características naturais), não um token. Os descritores são necessários apenas em projetos Marker Based; Local Based usa GPS e não precisa deles.
 
 ### Local Based
 
