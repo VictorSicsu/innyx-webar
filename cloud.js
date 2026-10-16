@@ -9,6 +9,7 @@
   let token = '';
   let connectedUser = '';
   let pendingPublishId = '';
+  let pendingPublishProject = null;
   let cloudDb;
 
   function say(message) {
@@ -148,21 +149,29 @@
   }
 
   async function getProject(id) {
-    const db = await openCloudDb();
-    return new Promise((resolve, reject) => {
-      const req = db.transaction('projects').objectStore('projects').get(id);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
+    try {
+      const db = await openCloudDb();
+      const project = await new Promise((resolve, reject) => {
+        const req = db.transaction('projects').objectStore('projects').get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      return project || window.findInnyxProject?.(id) || null;
+    } catch { return window.findInnyxProject?.(id) || null; }
   }
 
   async function saveProject(project) {
-    const db = await openCloudDb();
-    return new Promise((resolve, reject) => {
-      const req = db.transaction('projects', 'readwrite').objectStore('projects').put(project);
-      req.onsuccess = resolve;
-      req.onerror = () => reject(req.error);
-    });
+    try {
+      const db = await openCloudDb();
+      await new Promise((resolve, reject) => {
+        const req = db.transaction('projects', 'readwrite').objectStore('projects').put(project);
+        req.onsuccess = resolve;
+        req.onerror = () => reject(req.error);
+      });
+    } catch (error) {
+      if (!['InvalidStateError', 'SecurityError', 'QuotaExceededError'].includes(error?.name)) throw error;
+    }
+    window.rememberInnyxProject?.(project);
   }
 
   async function api(path, options = {}) {
@@ -181,10 +190,13 @@
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       const detail = body.message || response.statusText;
-      if (response.status === 401) throw new Error('Token inválido ou expirado. Conecte um token fine-grained com permissão Contents: Read and write.');
-      if (response.status === 403) throw new Error('O token não tem permissão para gravar neste repositório. Revise Contents: Read and write.');
-      if (response.status === 404) throw new Error('Repositório não encontrado ou token sem acesso a VictorSicsu/innyx-webar.');
-      throw new Error(`${detail} (GitHub ${response.status})`);
+      let message = `${detail} (GitHub ${response.status})`;
+      if (response.status === 401) message = 'Token inválido ou expirado. Gere outro token fine-grained e tente novamente.';
+      if (response.status === 403) message = 'O GitHub recusou o acesso. Confira se o token inclui VictorSicsu/innyx-webar e Contents: Read and write; em contas com SSO, autorize também o token.';
+      if (response.status === 404) message = 'Repositório não encontrado ou token sem acesso a VictorSicsu/innyx-webar.';
+      const error = new Error(message);
+      error.status = response.status;
+      throw error;
     }
     return body;
   }
@@ -223,6 +235,61 @@
 
   function rawUrl(path) { return `${RAW}/${path.split('/').map(encodeURIComponent).join('/')}`; }
   function extension(name) { return String(name || '').split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+  async function syncFromGitHub() {
+    const entries = await api('/contents/experiences?ref=' + encodeURIComponent(BRANCH)).catch((error) => {
+      if (error.status === 404) return [];
+      throw error;
+    });
+    if (!Array.isArray(entries)) throw new Error('O GitHub retornou uma resposta inesperada ao listar as experiências.');
+
+    const manifests = entries.filter((entry) => entry.type === 'file' && entry.name?.toLowerCase().endsWith('.json'));
+    let imported = 0;
+    for (const entry of manifests) {
+      const response = await fetch(rawUrl(entry.path), { cache: 'no-store' });
+      if (!response.ok) throw new Error(`Não foi possível carregar o manifesto ${entry.name} do GitHub.`);
+      const manifest = await response.json();
+      if (manifest.format !== 'innyx-webar-experience' || !manifest.id || !manifest.model?.url) continue;
+
+      const assets = manifest.assets || {};
+      const project = {
+        id: String(manifest.id),
+        name: manifest.name || entry.name.replace(/\.json$/i, ''),
+        mode: manifest.mode === 'location' ? 'location' : 'marker',
+        createdAt: manifest.createdAt || Date.now(),
+        updatedAt: manifest.updatedAt || Date.now(),
+        modelName: manifest.model.name || assets.modelName || 'model.glb',
+        markerName: manifest.marker?.name || assets.markerName || '',
+        animation: manifest.model.animation || '',
+        scale: manifest.model.scale || 1,
+        latitude: manifest.location?.latitude ?? null,
+        longitude: manifest.location?.longitude ?? null,
+        altitude: manifest.location?.altitude ?? null,
+        markerPreviewUrl: manifest.marker?.imageUrl || '',
+        github: {
+          publishedAt: manifest.updatedAt || Date.now(),
+          manifestPath: entry.path,
+          shareUrl: manifest.shareUrl || `${location.origin}/experience.html?id=${encodeURIComponent(manifest.id)}`,
+          deploymentState: 'ready',
+          assets: { ...assets, files: assets.files || [] }
+        }
+      };
+      const local = await getProject(project.id);
+      if (local) {
+        project.markerBlob = local.markerBlob || null;
+        project.modelBlob = local.modelBlob || null;
+        project.descriptorFiles = local.descriptorFiles || [];
+        project.tint = local.tint;
+      }
+      await saveProject(project);
+      imported += 1;
+    }
+    await window.refresh?.();
+    say(manifests.length
+      ? `GitHub conectado. ${imported} experiência(s) sincronizada(s).`
+      : 'GitHub conectado. Nenhuma experiência publicada ainda; publique um projeto para gerar o primeiro link.');
+    return imported;
+  }
 
   async function fileBlob(path) {
     if (!path) return null;
@@ -495,6 +562,7 @@
   async function publishProject(project) {
     if (!token) {
       pendingPublishId = project.id;
+      pendingPublishProject = project;
       githubDialog.showModal();
       $('github-token').focus();
       return false;
@@ -536,7 +604,22 @@
     return true;
   }
 
-  window.publishProjectById = async (id) => {
+  async function unpublishProject(id) {
+    const project = await getProject(id);
+    if (!project?.github?.manifestPath) throw new Error('O manifesto publicado não foi encontrado neste projeto.');
+    const removals = [...new Set([project.github.manifestPath, ...(project.github.assets?.files || [])])];
+    const commitSha = await commitTree([], removals, 'Unpublish WebAR: ' + project.name);
+    await waitForVercel(commitSha);
+    project.github = null;
+    project.markerPreviewUrl = '';
+    project.updatedAt = Date.now();
+    await saveProject(project);
+    await window.refresh?.();
+    say('Projeto removido do GitHub. O rascunho local foi mantido.');
+    return true;
+  }
+
+  window.publishProjectById = async (id, fallbackProject = null) => {
     if (activePublishId) {
       say('Já existe uma publicação em andamento. Aguarde a conclusão.');
       return false;
@@ -544,7 +627,7 @@
     activePublishId = id;
     setPublishActionDisabled(id, true);
     try {
-      const project = await getProject(id);
+      const project = await getProject(id) || fallbackProject || (pendingPublishProject?.id === id ? pendingPublishProject : null);
       if (!project) throw new Error('Projeto não encontrado neste navegador.');
       return await publishProject(project);
     } catch (error) {
@@ -604,15 +687,18 @@
       token = $('github-token').value.trim();
       if (!token) throw new Error('Cole seu token fine-grained do GitHub.');
       await api('');
+      await syncFromGitHub();
+      const waiting = pendingPublishId;
+      const waitingProject = pendingPublishProject;
+      pendingPublishId = '';
+      pendingPublishProject = null;
       $('github-token').value = '';
       setConnection(OWNER);
       githubDialog.close();
-      await syncFromGitHub();
-      const waiting = pendingPublishId;
-      pendingPublishId = '';
-      if (waiting) await window.publishProjectById(waiting);
+      if (waiting) await window.publishProjectById(waiting, waitingProject);
     } catch (error) {
       token = '';
+      setConnection('');
       $('github-error').textContent = error.message || 'Não foi possível conectar ao GitHub.';
     } finally {
       button.disabled = false;
@@ -624,6 +710,8 @@
   $('disconnect-github').addEventListener('click', () => {
     token = '';
     connectedUser = '';
+    pendingPublishId = '';
+    pendingPublishProject = null;
     $('github-token').value = '';
     setConnection('');
     githubDialog.close();

@@ -10,12 +10,14 @@ let descriptorUpload = null;
 let modelUrl = null;
 let toastTimer;
 const thumbUrls = new Map();
+const memoryProjects = new Map();
 const $ = (id) => document.getElementById(id);
 const dialog = $('project-dialog');
 const modelViewer = $('model-preview');
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error('IndexedDB indisponível neste navegador.'));
     const request = indexedDB.open(DB_NAME, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE, { keyPath: 'id' });
     request.onsuccess = () => resolve(request.result);
@@ -23,20 +25,39 @@ function openDatabase() {
   });
 }
 function allProjects() {
+  if (!db) return Promise.resolve([...memoryProjects.values()]);
   return new Promise((resolve, reject) => {
     const request = db.transaction(STORE).objectStore(STORE).getAll();
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const combined = new Map(request.result.map((project) => [project.id, project]));
+      memoryProjects.forEach((project, id) => combined.set(id, project));
+      resolve([...combined.values()]);
+    };
     request.onerror = () => reject(request.error);
   });
 }
 function saveRecord(project) {
+  memoryProjects.set(project.id, project);
+  if (!db) return Promise.resolve({ volatile: true });
   return new Promise((resolve, reject) => {
-    const request = db.transaction(STORE, 'readwrite').objectStore(STORE).put(project);
-    request.onsuccess = resolve;
-    request.onerror = () => reject(request.error);
+    let transaction;
+    try { transaction = db.transaction(STORE, 'readwrite'); }
+    catch (error) {
+      if (['InvalidStateError', 'SecurityError', 'QuotaExceededError'].includes(error.name)) return resolve({ volatile: true });
+      return reject(error);
+    }
+    const request = transaction.objectStore(STORE).put(project);
+    request.onsuccess = () => resolve({ volatile: false });
+    request.onerror = () => {
+      const error = request.error || transaction.error;
+      if (['InvalidStateError', 'SecurityError', 'QuotaExceededError'].includes(error?.name)) resolve({ volatile: true });
+      else reject(error || new Error('Falha ao gravar no armazenamento do navegador.'));
+    };
   });
 }
 function deleteRecord(id) {
+  memoryProjects.delete(id);
+  if (!db) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const request = db.transaction(STORE, 'readwrite').objectStore(STORE).delete(id);
     request.onsuccess = resolve;
@@ -95,6 +116,15 @@ function render() {
   $('empty-state').querySelector('span').textContent = projects.length ? 'Tente outra busca ou altere os filtros.' : 'Crie sua primeira experiência e dê vida a uma imagem.';
 }
 async function refresh() { projects = (await allProjects()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); render(); }
+window.findInnyxProject = (id) => projects.find((project) => project.id === id) || memoryProjects.get(id) || null;
+window.rememberInnyxProject = (project) => {
+  memoryProjects.set(project.id, project);
+  const index = projects.findIndex((item) => item.id === project.id);
+  if (index < 0) projects.unshift(project); else projects[index] = project;
+  projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  render();
+  return project;
+};
 function clearDialog() {
   $('project-form').reset(); $('project-id').value = ''; $('dialog-error').textContent = '';
   $('marker-file-name').textContent = 'Nenhum arquivo selecionado'; $('model-file-name').textContent = 'Nenhum arquivo selecionado';
@@ -243,10 +273,23 @@ document.getElementById('project-form').addEventListener('submit', async (event)
     updatedAt: Date.now(), createdAt: old?.createdAt || Date.now() };
   if (markerUpload && thumbUrls.has(project.id)) { URL.revokeObjectURL(thumbUrls.get(project.id)); thumbUrls.delete(project.id); }
   try {
-    await saveRecord(project); await refresh(); dialog.close();
-    if (publishNow && window.publishProjectById) await window.publishProjectById(project.id);
-    else notify('Rascunho salvo. Publique no GitHub para gerar o link compartilhável.');
-  } catch { $('dialog-error').textContent = 'Não foi possível salvar. Confira o espaço disponível no navegador.'; }
+    const result = await saveRecord(project);
+    await refresh(); dialog.close();
+    if (publishNow && window.publishProjectById) await window.publishProjectById(project.id, project);
+    else notify(result?.volatile
+      ? 'Rascunho mantido nesta aba. Publique no GitHub para guardar os arquivos e gerar o link.'
+      : 'Rascunho salvo neste navegador. Publique no GitHub para gerar o link compartilhável.');
+  } catch (error) {
+    if (publishNow && window.publishProjectById) {
+      window.rememberInnyxProject(project);
+      dialog.close();
+      await window.publishProjectById(project.id, project);
+      return;
+    }
+    $('dialog-error').textContent = error?.name === 'QuotaExceededError'
+      ? 'O armazenamento local está cheio. Use “Salvar e publicar” para guardar este projeto no GitHub.'
+      : `Falha ao salvar no navegador${error?.name ? ` (${error.name})` : ''}. Tente “Salvar e publicar” para enviar o projeto ao GitHub.`;
+  }
 });
 $('project-list').addEventListener('click', async (event) => {
   const row = event.target.closest('.project-row'); if (!row) return;
@@ -317,7 +360,11 @@ $('import-input').addEventListener('change', async (event) => {
 
 (async function init() {
   try { db = await openDatabase(); await refresh(); }
-  catch { notify('O armazenamento local não está disponível. Abra este site em uma janela normal.'); }
+  catch {
+    db = null;
+    await refresh();
+    notify('Armazenamento local indisponível. “Salvar e publicar” guarda o projeto no GitHub; rascunhos ficam nesta aba.');
+  }
 })();
 
 
