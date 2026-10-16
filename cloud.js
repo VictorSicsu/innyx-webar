@@ -21,6 +21,123 @@
     }
   }
 
+  const DEPLOY_ESTIMATES_KEY = 'innyx-webar:vercel-deploy-estimates';
+  const DEPLOY_POLL_MS = 3500;
+  const DEPLOY_TIMEOUT_MS = 180000;
+  let progressTimer = 0;
+  let progressHideTimer = 0;
+  let progressStartedAt = 0;
+  let progressValue = 0;
+  let progressActive = false;
+  let activePublishId = '';
+
+  function formatProgressTime(milliseconds) {
+    const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+    return String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
+  }
+
+  function getDeployEstimate() {
+    try {
+      const values = JSON.parse(localStorage.getItem(DEPLOY_ESTIMATES_KEY) || '[]').filter((value) => Number.isFinite(value) && value > 0);
+      if (!values.length) return 30000;
+      const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+      return Math.max(12000, Math.min(90000, average));
+    } catch { return 30000; }
+  }
+
+  function rememberDeployDuration(milliseconds) {
+    try {
+      const values = JSON.parse(localStorage.getItem(DEPLOY_ESTIMATES_KEY) || '[]').filter((value) => Number.isFinite(value) && value > 0);
+      values.push(Math.max(5000, Math.min(120000, milliseconds)));
+      localStorage.setItem(DEPLOY_ESTIMATES_KEY, JSON.stringify(values.slice(-5)));
+    } catch {}
+  }
+
+  function setPublishProgress(percent, title, step, detail, state = 'uploading', estimate = 0) {
+    if (!progressActive) return;
+    const value = state === 'complete' ? 100 : Math.min(97, Math.max(progressValue, Math.round(Number(percent) || 0)));
+    progressValue = value;
+    const panel = $('publish-progress');
+    panel.classList.remove('hidden');
+    panel.dataset.state = state;
+    $('publish-progress-title').textContent = title;
+    $('publish-progress-percent').textContent = value + '%';
+    $('publish-progress-fill').style.width = value + '%';
+    const bar = $('publish-progress-bar');
+    bar.setAttribute('aria-valuenow', String(value));
+    bar.setAttribute('aria-valuetext', value + '% — ' + step);
+    $('publish-progress-step').textContent = step;
+    $('publish-progress-detail').textContent = detail || '';
+    if (progressStartedAt) {
+      $('publish-progress-time').textContent = 'Tempo ' + formatProgressTime(Date.now() - progressStartedAt) + (estimate ? ' / ~' + formatProgressTime(estimate) : '');
+    }
+  }
+
+  function updatePublishTime() {
+    if (progressActive && progressStartedAt) {
+      $('publish-progress-time').textContent = 'Tempo ' + formatProgressTime(Date.now() - progressStartedAt);
+    }
+  }
+
+  function beginPublishProgress(projectName) {
+    clearInterval(progressTimer);
+    clearTimeout(progressHideTimer);
+    progressStartedAt = Date.now();
+    progressValue = 0;
+    progressActive = true;
+    $('publish-progress-open').classList.add('hidden');
+    $('publish-progress-open').removeAttribute('href');
+    setPublishProgress(2, 'Publicando ' + projectName, 'Validando arquivos', 'Preparando o envio seguro para o GitHub.');
+    progressTimer = window.setInterval(updatePublishTime, 1000);
+  }
+
+  function finishPublishProgress(shareUrl) {
+    if (!progressActive) return;
+    const elapsed = Date.now() - progressStartedAt;
+    setPublishProgress(100, 'Experiência pronta', 'Deploy confirmado pela Vercel', 'O link já pode ser aberto no celular.', 'complete');
+    const link = $('publish-progress-open');
+    link.href = shareUrl;
+    link.classList.remove('hidden');
+    $('publish-progress-time').textContent = 'Concluído em ' + formatProgressTime(elapsed);
+    progressActive = false;
+    clearInterval(progressTimer);
+    progressTimer = 0;
+    progressHideTimer = window.setTimeout(() => {
+      $('publish-progress').classList.add('hidden');
+      link.classList.add('hidden');
+      progressStartedAt = 0;
+    }, 10000);
+  }
+
+  function failPublishProgress(message) {
+    if (!progressActive) return false;
+    const elapsed = Date.now() - progressStartedAt;
+    setPublishProgress(progressValue, 'Publicação interrompida', 'Confira o motivo abaixo', message, 'error');
+    $('publish-progress-open').classList.add('hidden');
+    $('publish-progress-time').textContent = 'Interrompida após ' + formatProgressTime(elapsed);
+    progressActive = false;
+    clearInterval(progressTimer);
+    progressTimer = 0;
+    progressHideTimer = window.setTimeout(() => {
+      $('publish-progress').classList.add('hidden');
+      progressStartedAt = 0;
+    }, 15000);
+    return true;
+  }
+
+  function setPublishActionDisabled(projectId, disabled) {
+    document.querySelectorAll('[data-cloud-action="publish"]').forEach((button) => {
+      if (button.dataset.id === projectId) {
+        button.disabled = disabled;
+        button.setAttribute('aria-busy', String(disabled));
+      }
+    });
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
   function openCloudDb() {
     if (cloudDb) return Promise.resolve(cloudDb);
     return new Promise((resolve, reject) => {
@@ -80,15 +197,20 @@
     $('disconnect-github').classList.toggle('hidden', !token);
   }
 
-  function toBase64(file) {
+  function toBase64(file, onProgress = () => {}) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(event.loaded / event.total);
+      };
+      reader.onload = () => {
+        onProgress(1);
+        resolve(String(reader.result).split(',')[1]);
+      };
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
     });
   }
-
   function encodeText(value) {
     const bytes = new TextEncoder().encode(value);
     let binary = '';
@@ -204,25 +326,135 @@
     return { files, assets, paths: [...paths] };
   }
 
-  async function commitTree(files, removals, message) {
-    const ref = await api(`/git/ref/heads/${BRANCH}`);
-    const parentSha = ref.object.sha;
-    const parent = await api(`/git/commits/${parentSha}`);
-    const elements = [];
-    for (const item of files) {
-      const content = typeof item.blob === 'string' ? encodeText(item.blob) : await toBase64(item.blob);
-      const blob = await api('/git/blobs', { method: 'POST', body: JSON.stringify({ content, encoding: 'base64' }) });
-      elements.push({ path: item.path, mode: '100644', type: 'blob', sha: blob.sha });
+  function uploadBlobWithProgress(payload, onProgress) {
+    return new Promise((resolve, reject) => {
+      if (!token) return reject(new Error('Conecte o GitHub para publicar projetos.'));
+      const request = new XMLHttpRequest();
+      request.open('POST', API + '/git/blobs');
+      request.setRequestHeader('Accept', 'application/vnd.github+json');
+      request.setRequestHeader('Authorization', 'Bearer ' + token);
+      request.setRequestHeader('X-GitHub-Api-Version', '2022-11-28');
+      request.setRequestHeader('Content-Type', 'application/json');
+      request.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) onProgress(event.loaded / event.total);
+      });
+      request.addEventListener('load', () => {
+        let body = {};
+        try { body = JSON.parse(request.responseText || '{}'); } catch {}
+        if (request.status < 200 || request.status >= 300) {
+          const detail = body.message || request.statusText;
+          if (request.status === 401) return reject(new Error('Token inválido ou expirado. Conecte um token fine-grained com permissão Contents: Read and write.'));
+          if (request.status === 403) return reject(new Error('O token não tem permissão para gravar neste repositório. Revise Contents: Read and write.'));
+          if (request.status === 404) return reject(new Error('Repositório não encontrado ou token sem acesso a VictorSicsu/innyx-webar.'));
+          return reject(new Error(detail + ' (GitHub ' + request.status + ')'));
+        }
+        onProgress(1);
+        resolve(body);
+      });
+      request.addEventListener('error', () => reject(new Error('Falha de rede ao enviar um arquivo para o GitHub. Confira sua conexão e tente novamente.')));
+      request.addEventListener('abort', () => reject(new Error('O envio do arquivo para o GitHub foi interrompido.')));
+      request.send(payload);
+    });
+  }
+
+  async function readVercelCommitStatus(commitSha) {
+    const response = await fetch(API + '/commits/' + encodeURIComponent(commitSha) + '/status', {
+      headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+      cache: 'no-store'
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.message || 'GitHub não conseguiu consultar o status público do deploy.');
+    return body;
+  }
+
+  async function waitForVercel(commitSha) {
+    const startedAt = Date.now();
+    const estimate = getDeployEstimate();
+    const timeoutAt = startedAt + DEPLOY_TIMEOUT_MS;
+    let consecutiveErrors = 0;
+    setPublishProgress(80, 'Preparando o link WebAR', 'Aguardando a Vercel', 'O percentual desta etapa é estimado; a conclusão será confirmada pelo status real do deploy.', 'waiting', estimate);
+
+    while (Date.now() < timeoutAt) {
+      let result;
+      try {
+        result = await readVercelCommitStatus(commitSha);
+        consecutiveErrors = 0;
+      } catch (error) {
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 3) {
+          throw new Error('Os arquivos chegaram ao GitHub, mas não foi possível confirmar o deploy da Vercel: ' + error.message);
+        }
+        setPublishProgress(80, 'Preparando o link WebAR', 'Reconectando ao status da Vercel', 'Os arquivos já estão no GitHub; tentando consultar o deploy novamente.', 'waiting', estimate);
+        await new Promise((resolve) => window.setTimeout(resolve, DEPLOY_POLL_MS));
+        continue;
+      }
+
+      const checks = (result.statuses || [])
+        .filter((status) => /vercel/i.test(status.context || ''))
+        .sort((a, b) => Date.parse(b.updated_at || b.created_at || 0) - Date.parse(a.updated_at || a.created_at || 0));
+      const vercel = checks[0];
+      if (vercel?.state === 'success') {
+        rememberDeployDuration(Date.now() - startedAt);
+        setPublishProgress(97, 'Finalizando experiência', 'Deploy confirmado pela Vercel', 'Atualizando o projeto e liberando o link para o celular.', 'waiting', estimate);
+        return vercel;
+      }
+      if (vercel?.state === 'failure' || vercel?.state === 'error') {
+        throw new Error('O commit foi enviado ao GitHub, mas a Vercel informou falha no deploy. Confira o projeto Vercel antes de tentar novamente.');
+      }
+
+      const elapsed = Date.now() - startedAt;
+      const estimatedPercent = 80 + Math.min(16, Math.round((elapsed / estimate) * 16));
+      const state = vercel?.state === 'pending' ? 'A Vercel está construindo a versão de produção.' : 'Aguardando a Vercel iniciar a construção.';
+      setPublishProgress(estimatedPercent, 'Preparando o link WebAR', 'Aguardando a Vercel', state + ' O percentual é uma estimativa até a confirmação final.', 'waiting', estimate);
+      await new Promise((resolve) => window.setTimeout(resolve, DEPLOY_POLL_MS));
     }
+
+    throw new Error('O commit está no GitHub, mas a Vercel ainda não confirmou que a experiência está pronta. Confira o deploy e tente novamente em instantes.');
+  }
+
+  async function commitTree(files, removals, message) {
+    setPublishProgress(4, 'Preparando publicação no GitHub', 'Lendo a versão atual do repositório', 'Organizando o commit da experiência.');
+    const ref = await api('/git/ref/heads/' + BRANCH);
+    const parentSha = ref.object.sha;
+    const parent = await api('/git/commits/' + parentSha);
+    const elements = [];
+    const weights = files.map((item) => typeof item.blob === 'string'
+      ? Math.max(1, new TextEncoder().encode(item.blob).byteLength)
+      : Math.max(1, Number(item.blob?.size) || 1));
+    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+    let completedWeight = 0;
+
+    for (let index = 0; index < files.length; index += 1) {
+      const item = files[index];
+      const weight = weights[index];
+      const fileName = item.path.split('/').pop();
+      const reportFileProgress = (fraction, detail) => {
+        const transferred = completedWeight + weight * Math.max(0, Math.min(1, fraction));
+        setPublishProgress(8 + 59 * (transferred / totalWeight), 'Enviando arquivos ao GitHub', 'Arquivo ' + (index + 1) + ' de ' + files.length + ': ' + fileName, detail || (formatBytes(transferred) + ' de ' + formatBytes(totalWeight)), 'uploading');
+      };
+      const content = typeof item.blob === 'string'
+        ? encodeText(item.blob)
+        : await toBase64(item.blob, (fraction) => reportFileProgress(fraction * 0.12, 'Preparando o arquivo para envio.'));
+      const payload = JSON.stringify({ content, encoding: 'base64' });
+      reportFileProgress(0.12, 'Enviando os dados ao GitHub.');
+      const blob = await uploadBlobWithProgress(payload, (fraction) => reportFileProgress(0.12 + fraction * 0.88, 'Transferindo os dados ao GitHub.'));
+      elements.push({ path: item.path, mode: '100644', type: 'blob', sha: blob.sha });
+      completedWeight += weight;
+      reportFileProgress(1, 'Arquivo enviado.');
+    }
+
     removals.filter((path) => !files.some((item) => item.path === path)).forEach((path) => {
       elements.push({ path, mode: '100644', type: 'blob', sha: null });
     });
+    setPublishProgress(69, 'Gravando publicação no GitHub', 'Montando os arquivos do commit', 'Os arquivos foram enviados; registrando a nova versão.');
     const tree = await api('/git/trees', { method: 'POST', body: JSON.stringify({ base_tree: parent.tree.sha, tree: elements }) });
+    setPublishProgress(73, 'Gravando publicação no GitHub', 'Criando commit', 'Finalizando a versão do projeto.');
     const commit = await api('/git/commits', { method: 'POST', body: JSON.stringify({ message, tree: tree.sha, parents: [parentSha] }) });
-    await api(`/git/refs/heads/${BRANCH}`, { method: 'PATCH', body: JSON.stringify({ sha: commit.sha, force: false }) });
+    setPublishProgress(77, 'Gravando publicação no GitHub', 'Atualizando a branch principal', 'A Vercel será acionada assim que o commit entrar em main.');
+    await api('/git/refs/heads/' + BRANCH, { method: 'PATCH', body: JSON.stringify({ sha: commit.sha, force: false }) });
+    setPublishProgress(80, 'Preparando o link WebAR', 'Commit enviado ao GitHub', 'Aguardando o início do deploy de produção.');
     return commit.sha;
   }
-
   function buildManifest(project, assets, shareUrl, paths) {
     const descriptorBasePath = assets.descriptorPaths[0]?.replace(/\.fset3?$|\.iset$/i, '') || '';
     const marker = project.mode === 'marker' ? {
@@ -273,7 +505,7 @@
     if (mode === 'marker') {
       if (!(project.markerBlob || project.github?.assets?.markerImagePath)) throw new Error('Adicione uma imagem natural para o marcador.');
       const { assets } = projectFiles(project);
-      if (!['fset', 'fset3', 'iset'].every((ext) => assets.descriptorPaths.some((path) => path.endsWith(`.${ext}`)))) {
+      if (!['fset', 'fset3', 'iset'].every((ext) => assets.descriptorPaths.some((path) => path.endsWith('.' + ext)))) {
         throw new Error('Gere e adicione os descritores .fset, .fset3 e .iset para esta imagem.');
       }
     } else {
@@ -284,130 +516,45 @@
     }
 
     const { files, assets, paths } = projectFiles(project);
-    const manifestPath = `experiences/${project.id}.json`;
-    const shareUrl = `${location.origin}/experience.html?id=${encodeURIComponent(project.id)}`;
+    const manifestPath = 'experiences/' + project.id + '.json';
+    const shareUrl = location.origin + '/experience.html?id=' + encodeURIComponent(project.id);
     const manifest = buildManifest(project, assets, shareUrl, paths);
     const oldPaths = [...(project.github?.assets?.files || [])].filter((path) => !paths.includes(path));
     if (project.github?.manifestPath) oldPaths.push(project.github.manifestPath);
     files.push({ path: manifestPath, blob: JSON.stringify(manifest, null, 2) });
-    say('Enviando modelo e dados ao GitHub…');
-    await commitTree(files, oldPaths, `Publish WebAR: ${project.name}`);
-    project.github = { publishedAt: project.updatedAt, manifestPath, shareUrl, assets: { ...assets, files: paths } };
+    beginPublishProgress(project.name);
+    const commitSha = await commitTree(files, oldPaths, 'Publish WebAR: ' + project.name);
+    await waitForVercel(commitSha);
+    project.github = { publishedAt: project.updatedAt, manifestPath, shareUrl, commitSha, deploymentState: 'ready', assets: { ...assets, files: paths } };
     project.markerPreviewUrl = assets.markerImagePath ? rawUrl(assets.markerImagePath) : '';
     project.markerChanged = false;
     project.modelChanged = false;
     project.descriptorsChanged = false;
     await saveProject(project);
     if (typeof window.refresh === 'function') await window.refresh();
-    say('Publicado no GitHub. O link da experiência já está pronto para compartilhar.');
+    finishPublishProgress(shareUrl);
     return true;
   }
 
   window.publishProjectById = async (id) => {
+    if (activePublishId) {
+      say('Já existe uma publicação em andamento. Aguarde a conclusão.');
+      return false;
+    }
+    activePublishId = id;
+    setPublishActionDisabled(id, true);
     try {
       const project = await getProject(id);
       if (!project) throw new Error('Projeto não encontrado neste navegador.');
       return await publishProject(project);
     } catch (error) {
-      say(error.message || 'Falha ao publicar no GitHub.');
+      if (!failPublishProgress(error.message || 'Falha ao publicar a experiência.')) say(error.message || 'Falha ao publicar no GitHub.');
       return false;
+    } finally {
+      setPublishActionDisabled(id, false);
+      activePublishId = '';
     }
   };
-
-  async function fetchManifest(url) {
-    const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}refresh=${Date.now()}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error('Não foi possível sincronizar um manifesto do GitHub.');
-    return await response.json();
-  }
-
-  async function syncFromGitHub() {
-    const listing = await api('/contents/experiences?ref=' + BRANCH).catch((error) => {
-      if (/GitHub 404/.test(error.message)) return [];
-      throw error;
-    });
-    const manifests = Array.isArray(listing) ? listing.filter((item) => item.type === 'file' && item.name.endsWith('.json')) : [];
-    let count = 0;
-    for (const item of manifests) {
-      const manifest = await fetchManifest(item.download_url || rawUrl(item.path));
-      if (manifest.format !== 'innyx-webar-experience' || !manifest.id) continue;
-      const old = await getProject(manifest.id);
-      const assets = manifest.assets || {};
-      const project = {
-        ...(old || {}),
-        id: manifest.id,
-        name: manifest.name || 'Experiência sem título',
-        mode: manifest.mode || 'marker',
-        createdAt: manifest.createdAt || old?.createdAt || Date.now(),
-        updatedAt: manifest.updatedAt || Date.now(),
-        markerName: manifest.marker?.name || assets.markerName || old?.markerName || '',
-        markerPreviewUrl: manifest.marker?.imageUrl || '',
-        modelName: manifest.model?.name || assets.modelName || old?.modelName || 'model.glb',
-        animation: manifest.model?.animation || '',
-        scale: manifest.model?.scale || 1,
-        latitude: manifest.location?.latitude ?? null,
-        longitude: manifest.location?.longitude ?? null,
-        altitude: manifest.location?.altitude ?? null,
-        markerBlob: old?.markerBlob || null,
-        modelBlob: old?.modelBlob || null,
-        descriptorFiles: old?.descriptorFiles || [],
-        github: {
-          publishedAt: manifest.updatedAt || Date.now(),
-          manifestPath: item.path,
-          shareUrl: manifest.shareUrl || `${location.origin}/experience.html?id=${encodeURIComponent(manifest.id)}`,
-          assets: { ...assets, files: assets.files || [] }
-        }
-      };
-      await saveProject(project);
-      count += 1;
-    }
-    if (typeof window.refresh === 'function') await window.refresh();
-    say(`${count} experiência(s) sincronizada(s) do GitHub.`);
-    return count;
-  }
-
-  async function unpublishProject(id) {
-    const project = await getProject(id);
-    if (!project?.github?.publishedAt) return;
-    const paths = [...(project.github.assets?.files || []), project.github.manifestPath].filter(Boolean);
-    say('Removendo publicação do GitHub…');
-    await commitTree([], paths, `Unpublish WebAR: ${project.name}`);
-    delete project.github;
-    project.markerPreviewUrl = '';
-    await saveProject(project);
-    if (typeof window.refresh === 'function') await window.refresh();
-    say('Publicação removida. Os arquivos locais continuam salvos neste navegador.');
-  }
-
-  function decorateRows(projectList) {
-    const byId = new Map(projectList.map((item) => [item.id, item]));
-    document.querySelectorAll('.project-row').forEach((row) => {
-      const project = byId.get(row.dataset.id);
-      if (!project) return;
-      const info = row.querySelector('.project-info');
-      const status = row.querySelector('.status-cell .status');
-      if (status && project.github?.publishedAt) {
-        status.className = 'status published';
-        status.textContent = 'Publicado';
-      } else if (status && project.mode === 'location' && window.isPackageReady?.(project)) {
-        status.className = 'status ready';
-        status.textContent = 'Pronto';
-      }
-      let actions = info.querySelector('.cloud-actions');
-      if (!actions) {
-        actions = document.createElement('div');
-        actions.className = 'cloud-actions';
-        info.appendChild(actions);
-      }
-      if (project.github?.publishedAt) {
-        const href = project.github.shareUrl || `${location.origin}/experience.html?id=${encodeURIComponent(project.id)}`;
-        actions.innerHTML = `<a href="${href}" data-action="open" target="_blank" rel="noopener">Abrir experiência ↗</a><button type="button" data-cloud-action="copy" data-id="${project.id}">Copiar link</button><button type="button" data-cloud-action="unpublish" data-id="${project.id}">Despublicar</button>`;
-      } else {
-        actions.innerHTML = `<button type="button" class="publish-link" data-cloud-action="publish" data-id="${project.id}">Publicar no GitHub ↗</button>`;
-      }
-    });
-  }
-
-  const originalRender = window.render;
   window.render = function () {
     originalRender();
     openCloudDb().then(async (db) => {

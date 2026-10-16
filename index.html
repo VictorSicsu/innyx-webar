@@ -39,6 +39,17 @@
     </main>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <aside class="publish-progress hidden" id="publish-progress" data-state="uploading" aria-label="Progresso da publicação">
+    <div class="publish-progress-head">
+      <span class="publish-progress-mark" aria-hidden="true">↗</span>
+      <div class="publish-progress-copy"><span>GITHUB · VERCEL</span><strong id="publish-progress-title">Publicando experiência</strong></div>
+      <strong class="publish-progress-percent" id="publish-progress-percent">0%</strong>
+    </div>
+    <div class="publish-progress-track" id="publish-progress-bar" role="progressbar" aria-label="Progresso da publicação" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="publish-progress-fill" id="publish-progress-fill"></span></div>
+    <div class="publish-progress-footer"><span id="publish-progress-step" aria-live="polite">Validando arquivos</span><span id="publish-progress-time">Tempo 00:00</span></div>
+    <p class="publish-progress-detail" id="publish-progress-detail"></p>
+    <a class="publish-progress-open hidden" id="publish-progress-open" href="#" target="_blank" rel="noopener">Abrir experiência WebAR ↗</a>
+  </aside>
   <dialog class="project-dialog" id="project-dialog">
   <form id="project-form">
     <div class="dialog-head">
