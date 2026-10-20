@@ -100,7 +100,7 @@
     // Read NFT files through the same Vercel origin. The upstream GitHub raw
     // host can serve the GLB directly while its binary NFT responses fail
     // AR.js's descriptor XHR/CORS loading on some mobile browsers.
-    return `${location.origin}/api/nft-marker/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}/marker`;
+    return `${location.origin}/api/ar-descriptor/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}/marker`;
   }
 
   function cameraErrorMessage(error) {
