@@ -19,6 +19,9 @@
   let cameraBridgeAvailable = false;
   let cameraPreview = null;
   let arViewportHandler = null;
+  let nftEventHandlers = null;
+  let nftLoadTimer = 0;
+  let nftDetectionTimer = 0;
 
   function showStatus(message, error = false) {
     const status = $('viewer-status');
@@ -339,9 +342,31 @@
     scene.setAttribute('arjs', local
       ? 'sourceType: webcam; videoTexture: true; debugUIEnabled: false'
       : 'trackingMethod: best; sourceType: webcam; debugUIEnabled: false');
-    scene.addEventListener('arjs-nft-loaded', () => {
-      setARStatus('Rastreador pronto · aponte para a imagem do marcador.');
-    }, { once: true });
+    let nftTrackerReady = false;
+    const onNFTLoaded = () => {
+      if (nftTrackerReady || !arStarted || startId !== arStartId) return;
+      nftTrackerReady = true;
+      window.clearTimeout(nftLoadTimer);
+      nftLoadTimer = 0;
+      if (markerVisible) setARStatus('Marcador identificado · modelo 3D carregado.');
+      else if (modelReady) setARStatus('Rastreador e modelo prontos · enquadre a imagem inteira do marcador.');
+      else setARStatus('Rastreador pronto · carregando o modelo 3D…');
+      nftDetectionTimer = window.setTimeout(() => {
+        if (!arStarted || startId !== arStartId || markerVisible || modelAnchored) return;
+        setARStatus('Rastreador pronto, mas ainda sem detectar. Aproxime e mantenha o marcador inteiro, nítido e bem iluminado na câmera.');
+      }, 15000);
+    };
+    if (!local) {
+      // AR.js dispatches arjs-nft-loaded on window. Keep the scene listener too
+      // for compatible builds that dispatch it from the scene element.
+      window.addEventListener('arjs-nft-loaded', onNFTLoaded);
+      scene.addEventListener('arjs-nft-loaded', onNFTLoaded);
+      nftEventHandlers = { onNFTLoaded, scene };
+      nftLoadTimer = window.setTimeout(() => {
+        if (!arStarted || startId !== arStartId || nftTrackerReady) return;
+        setARStatus('O GLB carregou, mas o AR.js não confirmou os descritores do marcador. Verifique conexão e arquivos NFT publicados.');
+      }, 25000);
+    }
 
     const camera = document.createElement(local ? 'a-camera' : 'a-entity');
     if (local) {
@@ -399,7 +424,8 @@
         model.object3D.visible = true;
         if (markerVisible) setARStatus('Marcador identificado · modelo 3D carregado.');
         else if (cameraRelativePose) anchorModelToCamera();
-        else setARStatus('Modelo 3D carregado · aponte para a imagem do marcador.');
+        else if (nftTrackerReady) setARStatus('Rastreador e modelo prontos · enquadre a imagem inteira do marcador.');
+        else setARStatus('Modelo 3D carregado · preparando os descritores do marcador…');
       }
     });
     model.addEventListener('model-error', (event) => {
@@ -523,6 +549,8 @@
       target.setAttribute('smoothThreshold', '5');
       target.addEventListener('markerFound', () => {
         if (modelAnchored) return;
+        window.clearTimeout(nftDetectionTimer);
+        nftDetectionTimer = 0;
         markerRecognized = true;
         markerVisible = true;
         model.object3D.visible = true;
@@ -560,6 +588,15 @@
     cleanupCameraEvents();
     restoreCameraBridge();
     unbindARViewport();
+    if (nftEventHandlers) {
+      window.removeEventListener('arjs-nft-loaded', nftEventHandlers.onNFTLoaded);
+      nftEventHandlers.scene?.removeEventListener('arjs-nft-loaded', nftEventHandlers.onNFTLoaded);
+      nftEventHandlers = null;
+    }
+    window.clearTimeout(nftLoadTimer);
+    window.clearTimeout(nftDetectionTimer);
+    nftLoadTimer = 0;
+    nftDetectionTimer = 0;
     document.querySelectorAll('video').forEach((video) => {
       video.srcObject?.getTracks?.().forEach((track) => track.stop());
       video.srcObject = null;
