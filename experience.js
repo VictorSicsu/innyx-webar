@@ -111,11 +111,16 @@
   }
 
   function restoreCameraBridge() {
-    if (!cameraBridge) return;
-    const { mediaDevices, ownDescriptor } = cameraBridge;
-    if (ownDescriptor) Object.defineProperty(mediaDevices, 'getUserMedia', ownDescriptor);
-    else delete mediaDevices.getUserMedia;
-    cameraBridge = null;
+    try {
+      if (cameraBridge) {
+        const { mediaDevices, ownDescriptor } = cameraBridge;
+        if (ownDescriptor) Object.defineProperty(mediaDevices, 'getUserMedia', ownDescriptor);
+        else delete mediaDevices.getUserMedia;
+      }
+    } finally {
+      cameraBridge = null;
+      cameraBridgeAvailable = false;
+    }
   }
 
   function reuseCameraStreamForARJS(stream) {
@@ -179,7 +184,7 @@
 
   function styleARVideo(video) {
     Object.assign(video.style, {
-      position: 'fixed', inset: '0', width: '100vw', height: '100dvh',
+      position: 'fixed', inset: '0', width: '100vw', height: '100vh',
       margin: '0', objectFit: 'cover', zIndex: '0', display: 'block'
     });
     video.setAttribute('playsinline', '');
