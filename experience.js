@@ -16,6 +16,7 @@
   let cameraEventHandlers = null;
   let cameraStream = null;
   let cameraBridge = null;
+  let cameraBridgeAvailable = false;
   let cameraPreview = null;
 
   function showStatus(message, error = false) {
@@ -119,16 +120,26 @@
 
   function reuseCameraStreamForARJS(stream) {
     const mediaDevices = navigator.mediaDevices;
-    const ownDescriptor = Object.getOwnPropertyDescriptor(mediaDevices, 'getUserMedia');
-    const originalGetUserMedia = mediaDevices.getUserMedia.bind(mediaDevices);
-    Object.defineProperty(mediaDevices, 'getUserMedia', {
-      configurable: true,
-      writable: true,
-      value: (constraints) => constraints?.video && stream.active
-        ? Promise.resolve(stream)
-        : originalGetUserMedia(constraints)
-    });
-    cameraBridge = { mediaDevices, ownDescriptor };
+    try {
+      const ownDescriptor = Object.getOwnPropertyDescriptor(mediaDevices, 'getUserMedia');
+      const originalGetUserMedia = mediaDevices.getUserMedia.bind(mediaDevices);
+      Object.defineProperty(mediaDevices, 'getUserMedia', {
+        configurable: true,
+        writable: true,
+        value: (constraints) => constraints?.video && stream.active
+          ? Promise.resolve(stream)
+          : originalGetUserMedia(constraints)
+      });
+      cameraBridge = { mediaDevices, ownDescriptor };
+      cameraBridgeAvailable = true;
+      return true;
+    } catch {
+      // A few browsers expose getUserMedia as a non-overridable method. Keep
+      // the preview alive while scripts load, then let AR.js request the
+      // already-authorized camera through the native API.
+      cameraBridgeAvailable = false;
+      return false;
+    }
   }
 
   async function requestCameraFromTap() {
@@ -250,6 +261,15 @@
   function attachARScene(data) {
     const local = data.mode === 'location';
     const startId = arStartId;
+    if (!cameraBridgeAvailable && cameraStream) {
+      if (cameraPreview) {
+        cameraPreview.srcObject = null;
+        cameraPreview.remove();
+        cameraPreview = null;
+      }
+      cameraStream.getTracks().forEach((track) => track.stop());
+      cameraStream = null;
+    }
     watchCameraStartup(local, startId);
     scene = document.createElement('a-scene');
     scene.className = 'ar-scene';
