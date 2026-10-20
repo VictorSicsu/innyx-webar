@@ -29,12 +29,12 @@ h1{font-size:clamp(26px,6vw,38px);line-height:1.08;letter-spacing:-.055em;margin
 .privacy-copy{font-size:10px;line-height:1.55;color:#a69ab2;text-align:center;margin:13px 0 0}
 .studio-link{display:block;text-align:center;font-size:11px;color:#c5adf1;margin:19px 0 0}
 .studio-link:hover{text-decoration:underline}
-.ar-hud{position:fixed;inset:0;z-index:7;display:grid;grid-template-columns:40px minmax(0,1fr) 40px;align-items:start;gap:8px;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) 0 max(12px,env(safe-area-inset-left));pointer-events:none}
+.ar-hud{position:fixed;inset:0;z-index:7;display:block;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) 0 max(12px,env(safe-area-inset-left));pointer-events:none}
 .ar-hud.hidden,.hidden{display:none!important}
-.ar-hud-brand{position:static;display:flex;align-items:center;justify-content:flex-start;min-width:0;font-size:10px;font-weight:700;letter-spacing:.16em;color:#fff;text-shadow:0 1px 8px #000}
+.ar-hud-brand{position:absolute;top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left));display:flex;align-items:center;justify-content:flex-start;min-width:0;font-size:10px;font-weight:700;letter-spacing:.16em;color:#fff;text-shadow:0 1px 8px #000}
 .ar-hud-brand .brand-symbol{width:26px;height:26px;background:#241b35bd;border-color:#ffffff61}
-.ar-hint{position:static;transform:none;justify-self:stretch;min-width:0;max-width:none;padding:9px 11px;border:1px solid #ffffff35;border-radius:14px;background:#241b35d9;color:#fff;font-size:clamp(11px,3.2vw,13px);line-height:1.35;text-align:center;overflow-wrap:anywhere;box-shadow:0 4px 22px #0004}
-#exit-ar{pointer-events:auto;position:static;justify-self:end;width:40px;height:40px;border:1px solid #ffffff46;border-radius:50%;background:#241b35dd;color:white;font-size:22px;line-height:1;cursor:pointer}
+.ar-hint{position:absolute;top:calc(max(12px,env(safe-area-inset-top)) + 43px);left:50%;transform:translateX(-50%);width:max-content;min-width:0;max-width:min(90vw,460px);padding:9px 14px;border:1px solid #ffffff35;border-radius:999px;background:#241b35e8;color:#fff;font-size:clamp(11px,3.2vw,13px);line-height:1.35;text-align:center;overflow-wrap:anywhere;box-shadow:0 4px 22px #0004;pointer-events:none}
+#exit-ar{pointer-events:auto;position:absolute;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));width:40px;height:40px;border:1px solid #ffffff46;border-radius:50%;background:#241b35dd;color:white;font-size:22px;line-height:1;cursor:pointer}
 .ar-loader{position:fixed;inset:0;z-index:6;display:grid;align-content:center;justify-items:center;gap:12px;background:#17111fdc;color:white;text-align:center;padding:24px}
 .ar-loader.hidden{display:none}
 .ar-loader .spinner{width:30px;height:30px}
@@ -47,6 +47,6 @@ body.ar-active .viewer-main{padding:0;min-height:100vh;min-height:100dvh}
 .ar-scene canvas{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;z-index:1!important;background:transparent!important}
 body.ar-active>video#arjs-video,body.ar-active>video#innyx-camera-preview{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;margin:0!important;object-fit:cover!important;z-index:0!important;display:block!important;background:#000}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:560px){.viewer-top{height:58px}.viewer-main{min-height:calc(100dvh - 58px);padding:18px 12px 28px}.experience-card{border-radius:16px}.ar-hud{grid-template-columns:36px minmax(0,1fr) 38px;gap:7px;padding-top:max(10px,env(safe-area-inset-top));padding-right:max(10px,env(safe-area-inset-right));padding-left:max(10px,env(safe-area-inset-left))}.ar-hud-brand .brand-logo{width:32px;height:32px}.ar-hint{padding:8px 9px;border-radius:12px}#exit-ar{width:38px;height:38px}}
+@media(max-width:560px){.viewer-top{height:58px}.viewer-main{min-height:calc(100vh - 58px);min-height:calc(100dvh - 58px);padding:18px 12px 28px}.experience-card{border-radius:16px}.ar-hud{padding-top:max(10px,env(safe-area-inset-top));padding-right:max(10px,env(safe-area-inset-right));padding-left:max(10px,env(safe-area-inset-left))}.ar-hud-brand{top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left))}.ar-hud-brand .brand-logo{width:32px;height:32px}.ar-hint{top:calc(max(10px,env(safe-area-inset-top)) + 42px);max-width:min(90vw,460px);padding:8px 12px}#exit-ar{top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));width:38px;height:38px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
 
