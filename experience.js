@@ -14,6 +14,9 @@
   let cameraStartupTimer = 0;
   let cameraFrameTimer = 0;
   let cameraEventHandlers = null;
+  let cameraStream = null;
+  let cameraBridge = null;
+  let cameraPreview = null;
 
   function showStatus(message, error = false) {
     const status = $('viewer-status');
@@ -106,6 +109,63 @@
     cameraEventHandlers = null;
   }
 
+  function restoreCameraBridge() {
+    if (!cameraBridge) return;
+    const { mediaDevices, ownDescriptor } = cameraBridge;
+    if (ownDescriptor) Object.defineProperty(mediaDevices, 'getUserMedia', ownDescriptor);
+    else delete mediaDevices.getUserMedia;
+    cameraBridge = null;
+  }
+
+  function reuseCameraStreamForARJS(stream) {
+    const mediaDevices = navigator.mediaDevices;
+    const ownDescriptor = Object.getOwnPropertyDescriptor(mediaDevices, 'getUserMedia');
+    const originalGetUserMedia = mediaDevices.getUserMedia.bind(mediaDevices);
+    Object.defineProperty(mediaDevices, 'getUserMedia', {
+      configurable: true,
+      writable: true,
+      value: (constraints) => constraints?.video && stream.active
+        ? Promise.resolve(stream)
+        : originalGetUserMedia(constraints)
+    });
+    cameraBridge = { mediaDevices, ownDescriptor };
+  }
+
+  async function requestCameraFromTap() {
+    const mediaDevices = navigator.mediaDevices;
+    const nativeGetUserMedia = mediaDevices.getUserMedia.bind(mediaDevices);
+    const preferred = {
+      audio: false,
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
+    try {
+      cameraStream = await nativeGetUserMedia(preferred);
+    } catch (error) {
+      if (error?.name !== 'OverconstrainedError' && error?.name !== 'NotFoundError') throw error;
+      cameraStream = await nativeGetUserMedia({ audio: false, video: true });
+    }
+
+    reuseCameraStreamForARJS(cameraStream);
+    cameraPreview = document.createElement('video');
+    cameraPreview.id = 'innyx-camera-preview';
+    cameraPreview.autoplay = true;
+    cameraPreview.playsInline = true;
+    cameraPreview.muted = true;
+    cameraPreview.srcObject = cameraStream;
+    styleARVideo(cameraPreview);
+    document.body.appendChild(cameraPreview);
+    cameraPreview.addEventListener('loadeddata', () => {
+      if (!arStarted || cameraPreview?.videoWidth <= 0) return;
+      $('ar-loader').classList.add('hidden');
+      setARStatus('Câmera ativa · preparando o rastreamento…');
+    }, { once: true });
+    await cameraPreview.play();
+  }
+
   function styleARVideo(video) {
     Object.assign(video.style, {
       position: 'fixed', inset: '0', width: '100vw', height: '100dvh',
@@ -138,6 +198,11 @@
       styleARVideo(video);
       const checkFrame = () => {
         if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
+          if (cameraPreview) {
+            cameraPreview.srcObject = null;
+            cameraPreview.remove();
+            cameraPreview = null;
+          }
           markCameraReady(local, startId);
           return;
         }
@@ -158,7 +223,14 @@
     const onVideoLoaded = () => {
       const video = document.getElementById('arjs-video');
       if (video) styleARVideo(video);
-      if (video?.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) markCameraReady(local, startId);
+      if (video?.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
+        if (cameraPreview) {
+          cameraPreview.srcObject = null;
+          cameraPreview.remove();
+          cameraPreview = null;
+        }
+        markCameraReady(local, startId);
+      }
     };
     const onError = (event) => {
       if (!arStarted || startId !== arStartId) return;
@@ -184,6 +256,10 @@
     scene.setAttribute('embedded', '');
     scene.setAttribute('vr-mode-ui', 'enabled: false');
     scene.setAttribute('renderer', 'antialias: true; alpha: true; logarithmicDepthBuffer: true');
+    scene.addEventListener('renderstart', () => {
+      scene.renderer?.setClearColor(0x000000, 0);
+      scene.renderer?.setClearAlpha(0);
+    }, { once: true });
     scene.setAttribute('arjs', local
       ? 'sourceType: webcam; videoTexture: true; debugUIEnabled: false'
       : 'trackingMethod: best; sourceType: webcam; debugUIEnabled: false');
@@ -236,11 +312,15 @@
   function stopAR() {
     arStartId += 1;
     cleanupCameraEvents();
+    restoreCameraBridge();
     document.querySelectorAll('video').forEach((video) => {
       video.srcObject?.getTracks?.().forEach((track) => track.stop());
       video.srcObject = null;
       video.remove();
     });
+    cameraStream?.getTracks?.().forEach((track) => track.stop());
+    cameraStream = null;
+    cameraPreview = null;
     scene?.remove();
     scene = null;
     arStarted = false;
@@ -259,18 +339,22 @@
     arStarted = true;
     const startId = ++arStartId;
     try {
+      setARStatus('Solicitando acesso à câmera…');
+      await requestCameraFromTap();
+      if (!arStarted || startId !== arStartId) return;
       await loadScript('https://aframe.io/releases/1.6.0/aframe.min.js');
       if (manifest.mode === 'location') {
-        await loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.7/three.js/build/ar-threex-location-only.js');
-        await loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.7/aframe/build/aframe-ar.js');
+        await loadScript('https://raw.githack.com/AR-js-org/AR.js/3.4.8/three.js/build/ar-threex-location-only.js');
+        await loadScript('https://raw.githack.com/AR-js-org/AR.js/3.4.8/aframe/build/aframe-ar.js');
       } else {
-        await loadScript('https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.7/aframe/build/aframe-ar-nft.js');
+        await loadScript('https://raw.githack.com/AR-js-org/AR.js/3.4.8/aframe/build/aframe-ar-nft.js');
       }
       if (manifest.model.animation) await loadScript('https://cdn.jsdelivr.net/npm/aframe-extras@7.5.0/dist/aframe-extras.min.js');
       if (!arStarted || startId !== arStartId) return;
       attachARScene(manifest);
     } catch (error) {
-      failAR(error.message || 'Erro ao iniciar a experiência WebAR.');
+      const cameraErrors = ['NotAllowedError', 'SecurityError', 'NotFoundError', 'DevicesNotFoundError', 'NotReadableError', 'TrackStartError', 'OverconstrainedError'];
+      failAR(cameraErrors.includes(error?.name) ? cameraErrorMessage(error) : error.message || 'Erro ao iniciar a experiência WebAR.');
     }
   }
 
