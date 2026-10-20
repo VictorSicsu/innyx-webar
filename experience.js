@@ -320,7 +320,10 @@
           const largestDimension = Math.max(size.x, size.y, size.z);
           if (largestDimension > 0 && Number.isFinite(largestDimension)) {
             gltf.position.sub(center);
-            const fittedScale = Math.max(0.001, Math.min(100, (150 * factor) / largestDimension));
+            const markerImage = $('marker-preview').querySelector('img');
+            const markerSize = Math.min(markerImage?.naturalWidth || 480, markerImage?.naturalHeight || 480);
+            const targetSize = Math.min(markerSize * 0.7, 150 * factor);
+            const fittedScale = Math.max(0.001, Math.min(100, targetSize / largestDimension));
             model.setAttribute('scale', `${fittedScale} ${fittedScale} ${fittedScale}`);
           }
         }
@@ -345,7 +348,9 @@
       model.object3D.position.copy(position);
       model.object3D.quaternion.copy(quaternion);
       model.object3D.scale.copy(fittedScale);
+      model.object3D.visible = true;
       model.object3D.updateMatrix();
+      model.object3D.updateMatrixWorld(true);
       modelAnchored = true;
       installModelGestures();
       setARStatus('Marcador reconhecido · arraste com 1 dedo para girar; use 2 para mover.');
@@ -402,7 +407,10 @@
       model.setAttribute('position', `0 ${Number(locationData.altitude) || 0} 0`);
       model.setAttribute('scale', `${factor} ${factor} ${factor}`);
     } else {
-      model.setAttribute('position', '240 240 0');
+      const markerImage = $('marker-preview').querySelector('img');
+      const markerWidth = markerImage?.naturalWidth || 480;
+      const markerHeight = markerImage?.naturalHeight || 480;
+      model.setAttribute('position', `${markerWidth / 2} ${markerHeight / 2} -100`);
       model.setAttribute('scale', '1 1 1');
       target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
@@ -414,18 +422,25 @@
       target.addEventListener('markerFound', () => {
         if (!modelAnchored && !markerRecognized) {
           markerRecognized = true;
-          scene.object3D.updateMatrixWorld(true);
-          camera.object3D.updateMatrixWorld(true);
-          model.object3D.updateMatrixWorld(true);
-          cameraRelativePose = new THREE.Matrix4()
-            .copy(camera.object3D.matrixWorld)
-            .invert()
-            .multiply(model.object3D.matrixWorld);
-          anchorModelToCamera();
+          setARStatus('Marcador detectado · carregando o modelo 3D…');
+          // AR.js updates the NFT pose during its render tick. Capture it on
+          // the next frame so markerFound cannot freeze the previous matrix.
+          window.requestAnimationFrame(() => {
+            if (!arStarted || !scene || modelAnchored) return;
+            scene.object3D.updateMatrixWorld(true);
+            camera.object3D.updateMatrixWorld(true);
+            model.object3D.updateMatrixWorld(true);
+            cameraRelativePose = new THREE.Matrix4()
+              .copy(camera.object3D.matrixWorld)
+              .invert()
+              .multiply(model.object3D.matrixWorld);
+            anchorModelToCamera();
+          });
         }
       });
       target.addEventListener('markerLost', () => {
         if (modelAnchored) setARStatus('Objeto fixo na tela · 1 dedo gira; 2 dedos movem.');
+        else if (markerRecognized) setARStatus('Marcador saiu do quadro · aguardando o modelo 3D terminar de carregar.');
       });
       target.appendChild(model);
       scene.appendChild(target);
