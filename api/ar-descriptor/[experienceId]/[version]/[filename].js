@@ -29,6 +29,9 @@ module.exports = async function handler(req, res) {
     }
     const bytes = Buffer.from(await upstream.arrayBuffer());
     if (!bytes.length) return res.status(502).json({ error: 'Marker descriptor is empty.' });
+    if (req.query.probe === '1') {
+      return res.status(200).json({ ok: true, fileName, byteLength: bytes.length, signature: bytes.subarray(0, 4).toString('hex') });
+    }
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=86400, stale-while-revalidate=604800');
     res.setHeader('Content-Length', String(bytes.length));
