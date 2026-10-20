@@ -309,12 +309,28 @@
     let modelAnchored = false;
     let poseCaptureScheduled = false;
     let cameraRelativePose = null;
+    const modelLoadTimer = window.setTimeout(() => {
+      if (!modelReady && arStarted) {
+        setARStatus(markerRecognized
+          ? 'Marcador identificado · o GLB ainda está sendo baixado. Mantenha esta tela aberta.'
+          : 'Baixando o modelo 3D · aguarde antes de apontar para o marcador.');
+      }
+    }, 5000);
 
     model.addEventListener('model-loaded', () => {
+      window.clearTimeout(modelLoadTimer);
       modelReady = true;
       if (!local) {
         const gltf = model.getObject3D('mesh');
         if (gltf) {
+          let meshCount = 0;
+          gltf.traverse((node) => { if (node.isMesh) meshCount += 1; });
+          if (meshCount === 0) {
+            modelReady = false;
+            console.error('[InnyxWebAR] GLB carregado sem malhas renderizáveis.');
+            setARStatus('O GLB foi aberto, mas não contém malhas 3D renderizáveis.');
+            return;
+          }
           model.object3D.updateMatrixWorld(true);
           const bounds = new THREE.Box3().setFromObject(gltf);
           const size = bounds.getSize(new THREE.Vector3());
@@ -335,8 +351,11 @@
         else setARStatus('Modelo 3D carregado · aponte para a imagem do marcador.');
       }
     });
-    model.addEventListener('model-error', () => {
-      setARStatus('Não foi possível carregar o arquivo GLB. Confira se o modelo continua publicado no GitHub.');
+    model.addEventListener('model-error', (event) => {
+      window.clearTimeout(modelLoadTimer);
+      const reason = event.detail?.src || event.detail?.error?.message || 'resposta inválida do arquivo';
+      console.error('[InnyxWebAR] Falha ao carregar GLB:', reason, event.detail);
+      setARStatus('Falha ao carregar o GLB. Verifique a conexão do celular e se o arquivo está público no GitHub.');
     });
 
     function anchorModelToCamera() {
@@ -438,14 +457,15 @@
       const markerImage = $('marker-preview').querySelector('img');
       const markerWidth = markerImage?.naturalWidth || 480;
       const markerHeight = markerImage?.naturalHeight || 480;
-      // NFT descriptor coordinates use the marker image plane as the Z=0 origin.
-      // Negative Z placed the GLB behind the target plane on mobile browsers.
-      model.setAttribute('position', `${markerWidth / 2} ${markerHeight / 2} 0`);
+      // NFT content must sit in front of the image plane. AR.js's official NFT
+      // example uses a negative Z offset (150 300 -100); z=0 can intersect the
+      // tracked plane and hide models, especially on mobile GPUs.
+      model.setAttribute('position', `${markerWidth / 2} ${markerHeight / 2} -100`);
       model.setAttribute('scale', '1 1 1');
       target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
-      target.setAttribute('emitevents', 'true');
       target.setAttribute('url', data.marker?.descriptorBaseUrl || '');
+      target.setAttribute('emitevents', 'true');
       target.setAttribute('smooth', 'true');
       target.setAttribute('smoothCount', '10');
       target.setAttribute('smoothTolerance', '0.01');
