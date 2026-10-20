@@ -304,8 +304,10 @@
     const factor = Math.max(0.1, Math.min(3, Number(data.model.scale) || 1));
     let target = null;
     let markerRecognized = false;
+    let markerVisible = false;
     let modelReady = false;
     let modelAnchored = false;
+    let poseCaptureScheduled = false;
     let cameraRelativePose = null;
 
     model.addEventListener('model-loaded', () => {
@@ -327,10 +329,10 @@
             model.setAttribute('scale', `${fittedScale} ${fittedScale} ${fittedScale}`);
           }
         }
-        setARStatus(markerRecognized
-          ? 'Modelo pronto · ajuste com um ou dois dedos.'
-          : 'Modelo 3D carregado · aponte para a imagem do marcador.');
-        anchorModelToCamera();
+        model.object3D.visible = true;
+        if (markerVisible) setARStatus('Marcador identificado · modelo 3D carregado.');
+        else if (cameraRelativePose) anchorModelToCamera();
+        else setARStatus('Modelo 3D carregado · aponte para a imagem do marcador.');
       }
     });
     model.addEventListener('model-error', () => {
@@ -354,6 +356,32 @@
       modelAnchored = true;
       installModelGestures();
       setARStatus('Marcador reconhecido · arraste com 1 dedo para girar; use 2 para mover.');
+    }
+
+    function updateCameraRelativePose() {
+      if (!scene || !camera || !model) return;
+      scene.object3D.updateMatrixWorld(true);
+      camera.object3D.updateMatrixWorld(true);
+      model.object3D.updateMatrixWorld(true);
+      cameraRelativePose = new THREE.Matrix4()
+        .copy(camera.object3D.matrixWorld)
+        .invert()
+        .multiply(model.object3D.matrixWorld);
+    }
+
+    function queuePoseCapture() {
+      if (poseCaptureScheduled || modelAnchored) return;
+      poseCaptureScheduled = true;
+      window.requestAnimationFrame(() => {
+        poseCaptureScheduled = false;
+        if (!arStarted || !scene || modelAnchored) return;
+        if (markerVisible) {
+          updateCameraRelativePose();
+          queuePoseCapture();
+        } else if (modelReady) {
+          anchorModelToCamera();
+        }
+      });
     }
 
     function installModelGestures() {
@@ -420,27 +448,22 @@
       target.setAttribute('smoothTolerance', '0.01');
       target.setAttribute('smoothThreshold', '5');
       target.addEventListener('markerFound', () => {
-        if (!modelAnchored && !markerRecognized) {
-          markerRecognized = true;
-          setARStatus('Marcador detectado · carregando o modelo 3D…');
-          // AR.js updates the NFT pose during its render tick. Capture it on
-          // the next frame so markerFound cannot freeze the previous matrix.
-          window.requestAnimationFrame(() => {
-            if (!arStarted || !scene || modelAnchored) return;
-            scene.object3D.updateMatrixWorld(true);
-            camera.object3D.updateMatrixWorld(true);
-            model.object3D.updateMatrixWorld(true);
-            cameraRelativePose = new THREE.Matrix4()
-              .copy(camera.object3D.matrixWorld)
-              .invert()
-              .multiply(model.object3D.matrixWorld);
-            anchorModelToCamera();
-          });
-        }
+        if (modelAnchored) return;
+        markerRecognized = true;
+        markerVisible = true;
+        model.object3D.visible = true;
+        setARStatus(modelReady
+          ? 'Marcador identificado · modelo 3D carregado.'
+          : 'Marcador identificado · carregando o modelo 3D…');
+        queuePoseCapture();
       });
       target.addEventListener('markerLost', () => {
+        if (markerVisible) updateCameraRelativePose();
+        markerVisible = false;
         if (modelAnchored) setARStatus('Objeto fixo na tela · 1 dedo gira; 2 dedos movem.');
-        else if (markerRecognized) setARStatus('Marcador saiu do quadro · aguardando o modelo 3D terminar de carregar.');
+        else if (cameraRelativePose && modelReady) anchorModelToCamera();
+        else if (cameraRelativePose) setARStatus('Marcador saiu do quadro · aguardando o GLB terminar de carregar.');
+        else if (markerRecognized) setARStatus('Marcador saiu do quadro · aponte novamente para posicionar o modelo.');
       });
       target.appendChild(model);
       scene.appendChild(target);
