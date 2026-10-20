@@ -289,7 +289,7 @@
       ? 'sourceType: webcam; videoTexture: true; debugUIEnabled: false'
       : 'trackingMethod: best; sourceType: webcam; debugUIEnabled: false');
     scene.addEventListener('arjs-nft-loaded', () => {
-      setARStatus('Imagem reconhecida · mova o celular lentamente para enquadrar.');
+      setARStatus('Rastreador pronto · aponte para a imagem do marcador.');
     }, { once: true });
 
     const camera = document.createElement(local ? 'a-camera' : 'a-entity');
@@ -302,6 +302,99 @@
     const model = document.createElement('a-entity');
     model.setAttribute('gltf-model', `url(${data.model.url})`);
     const factor = Math.max(0.1, Math.min(3, Number(data.model.scale) || 1));
+    let target = null;
+    let markerRecognized = false;
+    let modelReady = false;
+    let modelAnchored = false;
+    let cameraRelativePose = null;
+
+    model.addEventListener('model-loaded', () => {
+      modelReady = true;
+      if (!local) {
+        const gltf = model.getObject3D('mesh');
+        if (gltf) {
+          model.object3D.updateMatrixWorld(true);
+          const bounds = new THREE.Box3().setFromObject(gltf);
+          const size = bounds.getSize(new THREE.Vector3());
+          const center = model.object3D.worldToLocal(bounds.getCenter(new THREE.Vector3()));
+          const largestDimension = Math.max(size.x, size.y, size.z);
+          if (largestDimension > 0 && Number.isFinite(largestDimension)) {
+            gltf.position.sub(center);
+            const fittedScale = Math.max(0.001, Math.min(100, (150 * factor) / largestDimension));
+            model.setAttribute('scale', `${fittedScale} ${fittedScale} ${fittedScale}`);
+          }
+        }
+        setARStatus(markerRecognized
+          ? 'Modelo pronto · ajuste com um ou dois dedos.'
+          : 'Modelo 3D carregado · aponte para a imagem do marcador.');
+        anchorModelToCamera();
+      }
+    });
+    model.addEventListener('model-error', () => {
+      setARStatus('Não foi possível carregar o arquivo GLB. Confira se o modelo continua publicado no GitHub.');
+    });
+
+    function anchorModelToCamera() {
+      if (local || !markerRecognized || !modelReady || modelAnchored || !cameraRelativePose) return;
+      const position = new THREE.Vector3();
+      const quaternion = new THREE.Quaternion();
+      const ignoredScale = new THREE.Vector3();
+      cameraRelativePose.decompose(position, quaternion, ignoredScale);
+      const fittedScale = model.object3D.scale.clone();
+      camera.appendChild(model);
+      model.object3D.position.copy(position);
+      model.object3D.quaternion.copy(quaternion);
+      model.object3D.scale.copy(fittedScale);
+      model.object3D.updateMatrix();
+      modelAnchored = true;
+      installModelGestures();
+      setARStatus('Marcador reconhecido · arraste com 1 dedo para girar; use 2 para mover.');
+    }
+
+    function installModelGestures() {
+      const canvas = scene.canvas;
+      if (!canvas || canvas.dataset.innyxGestures === 'true') return;
+      canvas.dataset.innyxGestures = 'true';
+      canvas.style.touchAction = 'none';
+      const pointers = new Map();
+      const center = () => {
+        const points = [...pointers.values()];
+        return points.length
+          ? points.reduce((sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }), { x: 0, y: 0 })
+          : null;
+      };
+      canvas.addEventListener('pointerdown', (event) => {
+        if (!modelAnchored) return;
+        event.preventDefault();
+        pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        canvas.setPointerCapture?.(event.pointerId);
+      }, { passive: false });
+      canvas.addEventListener('pointermove', (event) => {
+        const previous = pointers.get(event.pointerId);
+        if (!previous) return;
+        event.preventDefault();
+        const before = center();
+        pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        const after = center();
+        if (pointers.size === 1) {
+          model.object3D.rotation.y += (event.clientX - previous.x) * 0.01;
+          model.object3D.rotation.x += (event.clientY - previous.y) * 0.01;
+        } else if (before && after) {
+          const fov = Number(camera.getAttribute('camera')?.fov) || 80;
+          const distance = Math.max(0.5, Math.abs(model.object3D.position.z));
+          const worldUnitsPerPixel = (2 * distance * Math.tan((fov * Math.PI) / 360)) / Math.max(1, window.innerHeight);
+          model.object3D.position.x += (after.x - before.x) * worldUnitsPerPixel;
+          model.object3D.position.y -= (after.y - before.y) * worldUnitsPerPixel;
+        }
+      }, { passive: false });
+      const releasePointer = (event) => {
+        pointers.delete(event.pointerId);
+        if (canvas.hasPointerCapture?.(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      };
+      canvas.addEventListener('pointerup', releasePointer);
+      canvas.addEventListener('pointercancel', releasePointer);
+    }
+
     if (local) {
       const locationData = data.location || {};
       const place = `latitude: ${Number(locationData.latitude)}; longitude: ${Number(locationData.longitude)}`;
@@ -309,16 +402,31 @@
       model.setAttribute('position', `0 ${Number(locationData.altitude) || 0} 0`);
       model.setAttribute('scale', `${factor} ${factor} ${factor}`);
     } else {
-      model.setAttribute('position', '50 150 0');
-      const size = factor * 0.05;
-      model.setAttribute('scale', `${size} ${size} ${size}`);
-      const target = document.createElement('a-nft');
+      model.setAttribute('position', '240 240 0');
+      model.setAttribute('scale', '1 1 1');
+      target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
       target.setAttribute('url', data.marker?.descriptorBaseUrl || '');
       target.setAttribute('smooth', 'true');
       target.setAttribute('smoothCount', '10');
       target.setAttribute('smoothTolerance', '0.01');
       target.setAttribute('smoothThreshold', '5');
+      target.addEventListener('markerFound', () => {
+        if (!modelAnchored && !markerRecognized) {
+          markerRecognized = true;
+          scene.object3D.updateMatrixWorld(true);
+          camera.object3D.updateMatrixWorld(true);
+          model.object3D.updateMatrixWorld(true);
+          cameraRelativePose = new THREE.Matrix4()
+            .copy(camera.object3D.matrixWorld)
+            .invert()
+            .multiply(model.object3D.matrixWorld);
+          anchorModelToCamera();
+        }
+      });
+      target.addEventListener('markerLost', () => {
+        if (modelAnchored) setARStatus('Objeto fixo na tela · 1 dedo gira; 2 dedos movem.');
+      });
       target.appendChild(model);
       scene.appendChild(target);
     }
