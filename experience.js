@@ -438,10 +438,13 @@
       const markerImage = $('marker-preview').querySelector('img');
       const markerWidth = markerImage?.naturalWidth || 480;
       const markerHeight = markerImage?.naturalHeight || 480;
-      model.setAttribute('position', `${markerWidth / 2} ${markerHeight / 2} -100`);
+      // NFT descriptor coordinates use the marker image plane as the Z=0 origin.
+      // Negative Z placed the GLB behind the target plane on mobile browsers.
+      model.setAttribute('position', `${markerWidth / 2} ${markerHeight / 2} 0`);
       model.setAttribute('scale', '1 1 1');
       target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
+      target.setAttribute('emitevents', 'true');
       target.setAttribute('url', data.marker?.descriptorBaseUrl || '');
       target.setAttribute('smooth', 'true');
       target.setAttribute('smoothCount', '10');
