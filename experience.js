@@ -93,6 +93,16 @@
     $('ar-hint').textContent = message;
   }
 
+  function markerDescriptorBase(data) {
+    const path = String(data.marker?.descriptorBasePath || '');
+    const match = path.match(/^assets\/([a-f0-9-]{36})\/(\d{10,16})\/marker$/i);
+    if (!match) return data.marker?.descriptorBaseUrl || '';
+    // Read NFT files through the same Vercel origin. The upstream GitHub raw
+    // host can serve the GLB directly while its binary NFT responses fail
+    // AR.js's descriptor XHR/CORS loading on some mobile browsers.
+    return `${location.origin}/api/nft-marker/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}/marker`;
+  }
+
   function cameraErrorMessage(error) {
     const name = error?.name || '';
     if (name === 'NotAllowedError' || name === 'SecurityError') return 'A câmera foi bloqueada. Permita o acesso à câmera para este site nas configurações do navegador e tente novamente.';
@@ -541,7 +551,7 @@
       model.setAttribute('scale', '1 1 1');
       target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
-      target.setAttribute('url', data.marker?.descriptorBaseUrl || '');
+      target.setAttribute('url', markerDescriptorBase(data));
       target.setAttribute('emitevents', 'true');
       target.setAttribute('smooth', 'true');
       target.setAttribute('smoothCount', '10');
