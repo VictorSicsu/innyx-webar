@@ -18,6 +18,7 @@
   let cameraBridge = null;
   let cameraBridgeAvailable = false;
   let cameraPreview = null;
+  let arViewportHandler = null;
 
   function showStatus(message, error = false) {
     const status = $('viewer-status');
@@ -190,6 +191,55 @@
     video.setAttribute('playsinline', '');
     video.setAttribute('muted', '');
     video.muted = true;
+    syncARViewport();
+  }
+
+  function syncARViewport() {
+    if (!arStarted) return;
+    const viewport = window.visualViewport;
+    const width = Math.max(1, Math.round(viewport?.width || window.innerWidth));
+    const height = Math.max(1, Math.round(viewport?.height || window.innerHeight));
+    const left = Math.round(viewport?.offsetLeft || 0);
+    const top = Math.round(viewport?.offsetTop || 0);
+    const setViewportBox = (element) => {
+      if (!element) return;
+      element.style.setProperty('position', 'fixed', 'important');
+      element.style.setProperty('inset', 'auto', 'important');
+      element.style.setProperty('left', `${left}px`, 'important');
+      element.style.setProperty('top', `${top}px`, 'important');
+      element.style.setProperty('right', 'auto', 'important');
+      element.style.setProperty('bottom', 'auto', 'important');
+      element.style.setProperty('width', `${width}px`, 'important');
+      element.style.setProperty('height', `${height}px`, 'important');
+      element.style.setProperty('max-width', 'none', 'important');
+      element.style.setProperty('max-height', 'none', 'important');
+      element.style.setProperty('margin', '0', 'important');
+    };
+
+    setViewportBox(scene);
+    setViewportBox(scene?.canvas);
+    setViewportBox(document.getElementById('arjs-video'));
+    setViewportBox(cameraPreview);
+    setViewportBox($('ar-hud'));
+    if (scene?.renderer && scene.canvas) scene.renderer.setSize(width, height, false);
+  }
+
+  function bindARViewport() {
+    if (!arViewportHandler) {
+      arViewportHandler = () => window.requestAnimationFrame(syncARViewport);
+      window.addEventListener('resize', arViewportHandler, { passive: true });
+      window.visualViewport?.addEventListener('resize', arViewportHandler, { passive: true });
+      window.visualViewport?.addEventListener('scroll', arViewportHandler, { passive: true });
+    }
+    syncARViewport();
+  }
+
+  function unbindARViewport() {
+    if (!arViewportHandler) return;
+    window.removeEventListener('resize', arViewportHandler);
+    window.visualViewport?.removeEventListener('resize', arViewportHandler);
+    window.visualViewport?.removeEventListener('scroll', arViewportHandler);
+    arViewportHandler = null;
   }
 
   function markCameraReady(local, startId) {
@@ -284,6 +334,7 @@
     scene.addEventListener('renderstart', () => {
       scene.renderer?.setClearColor(0x000000, 0);
       scene.renderer?.setClearAlpha(0);
+      syncARViewport();
     }, { once: true });
     scene.setAttribute('arjs', local
       ? 'sourceType: webcam; videoTexture: true; debugUIEnabled: false'
@@ -494,6 +545,7 @@
     if (data.model.animation) model.setAttribute('animation-mixer', `clip: ${data.model.animation}; loop: repeat`);
     if (local) scene.insertBefore(model, camera);
     document.body.appendChild(scene);
+    window.requestAnimationFrame(syncARViewport);
   }
 
   function failAR(message) {
@@ -507,6 +559,7 @@
     arStartId += 1;
     cleanupCameraEvents();
     restoreCameraBridge();
+    unbindARViewport();
     document.querySelectorAll('video').forEach((video) => {
       video.srcObject?.getTracks?.().forEach((track) => track.stop());
       video.srcObject = null;
@@ -519,6 +572,7 @@
     scene = null;
     arStarted = false;
     document.body.classList.remove('ar-active');
+    document.documentElement.classList.remove('ar-active');
     $('ar-hud').classList.add('hidden');
     $('ar-loader').classList.add('hidden');
   }
@@ -529,7 +583,9 @@
     $('start-ar').disabled = true;
     $('ar-loader').classList.remove('hidden');
     $('ar-hud').classList.remove('hidden');
+    document.documentElement.classList.add('ar-active');
     document.body.classList.add('ar-active');
+    bindARViewport();
     arStarted = true;
     const startId = ++arStartId;
     try {
