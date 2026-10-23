@@ -400,6 +400,13 @@
       camera.setAttribute('rotation', '0 0 0');
     } else camera.setAttribute('camera', '');
     scene.appendChild(camera);
+    // Keep the retained object in Three.js space. Moving an A-Frame entity in
+    // the DOM destroys its gltf-model component and removes the loaded mesh.
+    const anchoredObject = !local ? new THREE.Group() : null;
+    if (anchoredObject) {
+      anchoredObject.visible = false;
+      camera.object3D.add(anchoredObject);
+    }
 
     const model = document.createElement('a-entity');
     model.setAttribute('gltf-model', `url(${data.model.url})`);
@@ -442,7 +449,7 @@
             gltf.position.sub(center);
             const markerImage = $('marker-preview').querySelector('img');
             const markerSize = Math.min(markerImage?.naturalWidth || 480, markerImage?.naturalHeight || 480);
-            const targetSize = Math.min(markerSize * 0.7, 150 * factor);
+            const targetSize = markerSize * 0.2 * factor;
             const fittedScale = Math.max(0.001, Math.min(100, targetSize / largestDimension));
             model.setAttribute('scale', `${fittedScale} ${fittedScale} ${fittedScale}`);
           }
@@ -463,18 +470,18 @@
 
     function anchorModelToCamera() {
       if (local || !markerRecognized || !modelReady || modelAnchored || !cameraRelativePose) return;
+      const mesh = model.getObject3D('mesh');
+      if (!mesh) return;
       const position = new THREE.Vector3();
       const quaternion = new THREE.Quaternion();
-      const ignoredScale = new THREE.Vector3();
-      cameraRelativePose.decompose(position, quaternion, ignoredScale);
-      const fittedScale = model.object3D.scale.clone();
-      camera.appendChild(model);
-      model.object3D.position.copy(position);
-      model.object3D.quaternion.copy(quaternion);
-      model.object3D.scale.copy(fittedScale);
-      model.object3D.visible = true;
-      model.object3D.updateMatrix();
-      model.object3D.updateMatrixWorld(true);
+      const scale = new THREE.Vector3();
+      cameraRelativePose.decompose(position, quaternion, scale);
+      anchoredObject.position.copy(position);
+      anchoredObject.quaternion.copy(quaternion);
+      anchoredObject.scale.copy(scale);
+      anchoredObject.add(mesh);
+      anchoredObject.visible = true;
+      anchoredObject.updateMatrixWorld(true);
       modelAnchored = true;
       installModelGestures();
       setARStatus('Marcador reconhecido · arraste com 1 dedo para girar; use 2 para mover.');
@@ -532,14 +539,14 @@
         pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
         const after = center();
         if (pointers.size === 1) {
-          model.object3D.rotation.y += (event.clientX - previous.x) * 0.01;
-          model.object3D.rotation.x += (event.clientY - previous.y) * 0.01;
+          anchoredObject.rotation.y += (event.clientX - previous.x) * 0.01;
+          anchoredObject.rotation.x += (event.clientY - previous.y) * 0.01;
         } else if (before && after) {
           const fov = Number(camera.getAttribute('camera')?.fov) || 80;
-          const distance = Math.max(0.5, Math.abs(model.object3D.position.z));
+          const distance = Math.max(0.5, Math.abs(anchoredObject.position.z));
           const worldUnitsPerPixel = (2 * distance * Math.tan((fov * Math.PI) / 360)) / Math.max(1, window.innerHeight);
-          model.object3D.position.x += (after.x - before.x) * worldUnitsPerPixel;
-          model.object3D.position.y -= (after.y - before.y) * worldUnitsPerPixel;
+          anchoredObject.position.x += (after.x - before.x) * worldUnitsPerPixel;
+          anchoredObject.position.y -= (after.y - before.y) * worldUnitsPerPixel;
         }
       }, { passive: false });
       const releasePointer = (event) => {
@@ -560,10 +567,7 @@
       const markerImage = $('marker-preview').querySelector('img');
       const markerWidth = markerImage?.naturalWidth || 480;
       const markerHeight = markerImage?.naturalHeight || 480;
-      // NFT content must sit in front of the image plane. AR.js's official NFT
-      // example uses a negative Z offset (150 300 -100); z=0 can intersect the
-      // tracked plane and hide models, especially on mobile GPUs.
-      model.setAttribute('position', `${markerWidth / 2} ${markerHeight / 2} -100`);
+      model.setAttribute('position', `${markerWidth / 2} ${markerHeight / 2} 0`);
       model.setAttribute('scale', '1 1 1');
       target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
