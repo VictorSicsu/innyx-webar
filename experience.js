@@ -22,6 +22,7 @@
   let nftEventHandlers = null;
   let nftLoadTimer = 0;
   let nftDetectionTimer = 0;
+  let restoreNFTVideoEventReplay = null;
 
   function showStatus(message, error = false) {
     const status = $('viewer-status');
@@ -101,6 +102,18 @@
     // host can serve the GLB directly while its binary NFT responses fail
     // AR.js's descriptor XHR/CORS loading on some mobile browsers.
     return `${location.origin}/api/ar-descriptor/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}/marker`;
+  }
+
+  async function verifyNFTDescriptors(data) {
+    const base = markerDescriptorBase(data);
+    if (!base) throw new Error('Este projeto não contém os três arquivos de rastreamento do marcador. Publique-o novamente no Studio.');
+    const extensions = ['fset', 'fset3', 'iset'];
+    await Promise.all(extensions.map(async (extension) => {
+      const response = await fetch(`${base}.${extension}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`Arquivo ${extension} indisponível (${response.status}). Publique o marcador novamente no Studio.`);
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength < 4) throw new Error(`Arquivo ${extension} vazio ou incompleto. Publique o marcador novamente no Studio.`);
+    }));
   }
 
   function cameraErrorMessage(error) {
@@ -339,6 +352,7 @@
       cameraStream = null;
     }
     watchCameraStartup(local, startId);
+    if (!local) restoreNFTVideoEventReplay = window.installNFTVideoEventReplay(window);
     scene = document.createElement('a-scene');
     scene.className = 'ar-scene';
     scene.setAttribute('embedded', '');
@@ -356,6 +370,8 @@
     const onNFTLoaded = () => {
       if (nftTrackerReady || !arStarted || startId !== arStartId) return;
       nftTrackerReady = true;
+      restoreNFTVideoEventReplay?.();
+      restoreNFTVideoEventReplay = null;
       window.clearTimeout(nftLoadTimer);
       nftLoadTimer = 0;
       if (markerVisible) setARStatus('Marcador identificado · modelo 3D carregado.');
@@ -374,7 +390,7 @@
       nftEventHandlers = { onNFTLoaded, scene };
       nftLoadTimer = window.setTimeout(() => {
         if (!arStarted || startId !== arStartId || nftTrackerReady) return;
-        setARStatus('O GLB carregou, mas o AR.js não confirmou os descritores do marcador. Verifique conexão e arquivos NFT publicados.');
+        setARStatus('Os arquivos do marcador foram lidos, mas o rastreador AR.js não iniciou. Feche a câmera e tente novamente.');
       }, 25000);
     }
 
@@ -596,6 +612,8 @@
   function stopAR() {
     arStartId += 1;
     cleanupCameraEvents();
+    restoreNFTVideoEventReplay?.();
+    restoreNFTVideoEventReplay = null;
     restoreCameraBridge();
     unbindARViewport();
     if (nftEventHandlers) {
@@ -638,6 +656,11 @@
     try {
       setARStatus('Solicitando acesso à câmera…');
       await requestCameraFromTap();
+      if (!arStarted || startId !== arStartId) return;
+      if (manifest.mode !== 'location') {
+        setARStatus('Câmera ativa · conferindo os arquivos do marcador…');
+        await verifyNFTDescriptors(manifest);
+      }
       if (!arStarted || startId !== arStartId) return;
       await loadScript('https://aframe.io/releases/1.6.0/aframe.min.js');
       if (manifest.mode === 'location') {
