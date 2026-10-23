@@ -5,14 +5,14 @@
   "name": "Innyx_Rocket",
   "mode": "marker",
   "createdAt": 1792182043193,
-  "updatedAt": 1792759645452,
+  "updatedAt": 1792762552387,
   "shareUrl": "https://innyx-webar.vercel.app/experience.html?id=53eab2a5-96f8-47e3-a1ae-881fd4a39efb&owner=VictorSicsu&repo=innyx-webar",
   "model": {
     "name": "INNYX_logo_3D_rocket.glb",
     "path": "assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/model.glb",
     "url": "https://raw.githubusercontent.com/VictorSicsu/innyx-webar/main/assets/53eab2a5-96f8-47e3-a1ae-881fd4a39efb/1792182043237/model.glb",
     "animation": "Toy RocketAction",
-    "scale": 2
+    "scale": 1
   },
   "marker": {
     "name": "INNYX_marker.png",
