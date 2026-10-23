@@ -417,10 +417,8 @@
     let modelReady = false;
     let modelAnchored = false;
     let modelCentered = false;
+    let modelUpright = false;
     let modelBaseDimension = 0;
-    // A-Frame NFT's model-view origin needs this measured center correction
-    // for the camera projection used by the viewer.
-    const markerCenterCorrection = { x: 0.19, y: -0.065 };
     let markerMetrics = null;
     const markerImage = $('marker-preview').querySelector('img');
     markerMetrics = {
@@ -482,6 +480,19 @@
         model.object3D.scale.copy(previousScale);
         return false;
       }
+      if (!modelUpright) {
+        const rawSize = bounds.getSize(new THREE.Vector3());
+        const verticalThreshold = 1.15;
+        if (rawSize.x > rawSize.y * verticalThreshold && rawSize.x >= rawSize.z) {
+          model.setAttribute('rotation', `0 0 90`);
+        } else if (rawSize.z > rawSize.y * verticalThreshold && rawSize.z > rawSize.x) {
+          model.setAttribute('rotation', `-90 0 0`);
+        }
+        modelUpright = true;
+        model.object3D.updateMatrixWorld(true);
+        gltf.updateMatrixWorld(true);
+        bounds.setFromObject(gltf);
+      }
       if (!modelCentered) {
         const center = model.object3D.worldToLocal(bounds.getCenter(new THREE.Vector3()));
         gltf.position.sub(center);
@@ -499,7 +510,9 @@
       const targetSize = Math.min(markerMetrics.width, markerMetrics.height) * 0.2 * factor;
       const fittedScale = Math.max(0.001, Math.min(100, targetSize / modelBaseDimension));
       model.setAttribute('scale', `${fittedScale} ${fittedScale} ${fittedScale}`);
-      model.setAttribute('position', `${markerMetrics.width * markerCenterCorrection.x} ${markerMetrics.height * markerCenterCorrection.y} 0`);
+      // AR.js NFT's (0, 0, 0) is the image center. Keep the model origin there;
+      // empirical pixel offsets made the object drift down and off the target.
+      model.setAttribute('position', '0 0 0');
       return true;
     }
 
@@ -612,7 +625,7 @@
     } else {
       window.addEventListener('arjs-nft-init-data', applyNFTMarkerMetrics);
       nftEventHandlers = { ...nftEventHandlers, onNFTInitData: applyNFTMarkerMetrics };
-      model.setAttribute('position', `${markerMetrics.width * markerCenterCorrection.x} ${markerMetrics.height * markerCenterCorrection.y} 0`);
+      model.setAttribute('position', '0 0 0');
       model.setAttribute('scale', '1 1 1');
       target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
