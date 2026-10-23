@@ -418,6 +418,9 @@
     let modelAnchored = false;
     let modelCentered = false;
     let modelBaseDimension = 0;
+    // A-Frame NFT's model-view origin needs this measured center correction
+    // for the camera projection used by the viewer.
+    const markerCenterCorrection = { x: 0.19, y: -0.065 };
     let markerMetrics = null;
     const markerImage = $('marker-preview').querySelector('img');
     markerMetrics = {
@@ -496,7 +499,7 @@
       const targetSize = Math.min(markerMetrics.width, markerMetrics.height) * 0.2 * factor;
       const fittedScale = Math.max(0.001, Math.min(100, targetSize / modelBaseDimension));
       model.setAttribute('scale', `${fittedScale} ${fittedScale} ${fittedScale}`);
-      model.setAttribute('position', `${markerMetrics.width} ${markerMetrics.height / 2} 0`);
+      model.setAttribute('position', `${markerMetrics.width * markerCenterCorrection.x} ${markerMetrics.height * markerCenterCorrection.y} 0`);
       return true;
     }
 
@@ -609,7 +612,7 @@
     } else {
       window.addEventListener('arjs-nft-init-data', applyNFTMarkerMetrics);
       nftEventHandlers = { ...nftEventHandlers, onNFTInitData: applyNFTMarkerMetrics };
-      model.setAttribute('position', `${markerMetrics.width} ${markerMetrics.height / 2} 0`);
+      model.setAttribute('position', `${markerMetrics.width * markerCenterCorrection.x} ${markerMetrics.height * markerCenterCorrection.y} 0`);
       model.setAttribute('scale', '1 1 1');
       target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
