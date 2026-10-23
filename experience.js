@@ -510,9 +510,9 @@
       const targetSize = Math.min(markerMetrics.width, markerMetrics.height) * 0.2 * factor;
       const fittedScale = Math.max(0.001, Math.min(100, targetSize / modelBaseDimension));
       model.setAttribute('scale', `${fittedScale} ${fittedScale} ${fittedScale}`);
-      // AR.js NFT's (0, 0, 0) is the image center. Keep the model origin there;
-      // empirical pixel offsets made the object drift down and off the target.
-      model.setAttribute('position', '0 0 0');
+      // AR.js NFT image coordinates start at an edge; its official example
+      // places centered content at half the physical image width and height.
+      model.setAttribute('position', `${markerMetrics.width / 2} ${markerMetrics.height / 2} 0`);
       return true;
     }
 
@@ -625,7 +625,7 @@
     } else {
       window.addEventListener('arjs-nft-init-data', applyNFTMarkerMetrics);
       nftEventHandlers = { ...nftEventHandlers, onNFTInitData: applyNFTMarkerMetrics };
-      model.setAttribute('position', '0 0 0');
+      model.setAttribute('position', `${markerMetrics.width / 2} ${markerMetrics.height / 2} 0`);
       model.setAttribute('scale', '1 1 1');
       target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
