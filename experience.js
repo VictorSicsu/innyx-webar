@@ -444,6 +444,7 @@
             setARStatus('O GLB foi aberto, mas não contém malhas 3D renderizáveis.');
             return;
           }
+          model.object3D.updateMatrixWorld(true);
           const bounds = new THREE.Box3().setFromObject(gltf);
           const size = bounds.getSize(new THREE.Vector3());
           const center = model.object3D.worldToLocal(bounds.getCenter(new THREE.Vector3()));
@@ -474,6 +475,7 @@
       if (!markerMetrics) return;
       const gltf = model.getObject3D('mesh');
       if (!gltf) return;
+      model.object3D.updateMatrixWorld(true);
       const bounds = new THREE.Box3().setFromObject(gltf);
       const size = bounds.getSize(new THREE.Vector3());
       const largestDimension = Math.max(size.x, size.y, size.z);
