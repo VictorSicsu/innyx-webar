@@ -416,6 +416,8 @@
     let markerVisible = false;
     let modelReady = false;
     let modelAnchored = false;
+    let modelCentered = false;
+    let modelBaseDimension = 0;
     let markerMetrics = null;
     const markerImage = $('marker-preview').querySelector('img');
     markerMetrics = {
@@ -444,16 +446,9 @@
             setARStatus('O GLB foi aberto, mas não contém malhas 3D renderizáveis.');
             return;
           }
-          model.object3D.updateMatrixWorld(true);
-          const bounds = new THREE.Box3().setFromObject(gltf);
-          const size = bounds.getSize(new THREE.Vector3());
-          const center = model.object3D.worldToLocal(bounds.getCenter(new THREE.Vector3()));
-          const largestDimension = Math.max(size.x, size.y, size.z);
-          if (largestDimension > 0 && Number.isFinite(largestDimension)) {
-            gltf.position.sub(center);
-            fitModelToMarker();
-          }
         }
+        fitModelToMarker();
+        scheduleModelFit();
         model.object3D.visible = true;
         if (markerVisible) {
           installModelGestures();
@@ -472,18 +467,45 @@
     });
 
     function fitModelToMarker() {
-      if (!markerMetrics) return;
+      if (!markerMetrics || !modelReady) return false;
       const gltf = model.getObject3D('mesh');
-      if (!gltf) return;
+      if (!gltf) return false;
+      const previousScale = model.object3D.scale.clone();
+      model.object3D.scale.setScalar(1);
       model.object3D.updateMatrixWorld(true);
+      gltf.updateMatrixWorld(true);
       const bounds = new THREE.Box3().setFromObject(gltf);
+      if (bounds.isEmpty()) {
+        model.object3D.scale.copy(previousScale);
+        return false;
+      }
+      if (!modelCentered) {
+        const center = model.object3D.worldToLocal(bounds.getCenter(new THREE.Vector3()));
+        gltf.position.sub(center);
+        modelCentered = true;
+        model.object3D.updateMatrixWorld(true);
+        gltf.updateMatrixWorld(true);
+        bounds.setFromObject(gltf);
+      }
       const size = bounds.getSize(new THREE.Vector3());
-      const largestDimension = Math.max(size.x, size.y, size.z);
-      if (!(largestDimension > 0) || !Number.isFinite(largestDimension)) return;
+      modelBaseDimension = Math.max(size.x, size.y, size.z);
+      if (!(modelBaseDimension > 0) || !Number.isFinite(modelBaseDimension)) {
+        model.object3D.scale.copy(previousScale);
+        return false;
+      }
       const targetSize = Math.min(markerMetrics.width, markerMetrics.height) * 0.2 * factor;
-      const fittedScale = Math.max(0.001, Math.min(100, targetSize / largestDimension));
+      const fittedScale = Math.max(0.001, Math.min(100, targetSize / modelBaseDimension));
       model.setAttribute('scale', `${fittedScale} ${fittedScale} ${fittedScale}`);
-      model.setAttribute('position', `${markerMetrics.width / 2} ${markerMetrics.height / 2} 0`);
+      model.setAttribute('position', `${markerMetrics.width} ${markerMetrics.height / 2} 0`);
+      return true;
+    }
+
+    function scheduleModelFit(attempt = 0) {
+      if (attempt >= 20) return;
+      window.requestAnimationFrame(() => {
+        if (!arStarted || !modelReady || local) return;
+        if (!fitModelToMarker()) scheduleModelFit(attempt + 1);
+      });
     }
 
     function applyNFTMarkerMetrics(event) {
@@ -587,7 +609,7 @@
     } else {
       window.addEventListener('arjs-nft-init-data', applyNFTMarkerMetrics);
       nftEventHandlers = { ...nftEventHandlers, onNFTInitData: applyNFTMarkerMetrics };
-      model.setAttribute('position', `${markerMetrics.width / 2} ${markerMetrics.height / 2} 0`);
+      model.setAttribute('position', `${markerMetrics.width} ${markerMetrics.height / 2} 0`);
       model.setAttribute('scale', '1 1 1');
       target = document.createElement('a-nft');
       target.setAttribute('type', 'nft');
